@@ -24,6 +24,8 @@ def get_connection():
         conn.row_factory = sqlite3.Row
         return conn
 
+get_db = get_connection
+
 def adapt_sql(sql: str) -> str:
     if not IS_POSTGRES:
         return sql
