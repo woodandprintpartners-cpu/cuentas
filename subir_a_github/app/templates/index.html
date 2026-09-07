@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>W&P - Taller 3D & Gestión de Proyectos</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eff6ff',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                            900: '#1e3a8a'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white">
+
+    <!-- TOP NAVIGATION BAR -->
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20 font-black text-xl text-white">
+                    W&P
+                </div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight tracking-tight text-white flex items-center gap-2">
+                        W&P Workshop
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono font-normal">v1.0</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">Precios 3D, Cuentas & Materiales</p>
+                </div>
+            </div>
+
+            <!-- Quick Settlement Summary in Header -->
+            <div id="quick-stats-bar" class="hidden md:flex items-center gap-6 text-xs">
+                <div class="flex items-center gap-2">
+                    <span class="text-slate-400">Facturación:</span>
+                    <span id="quick-total-facturado" class="font-bold font-mono text-emerald-400 text-sm">0.00 €</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-slate-400">Pendiente de Cobro:</span>
+                    <span id="quick-pendiente" class="font-bold font-mono text-slate-300 text-sm">0.00 €</span>
+                    <span id="quick-pendiente-badge" class="hidden w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                </div>
+                <div class="px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 flex items-center gap-2">
+                    <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <div id="quick-liquidacion-text" class="text-slate-300 font-medium">Calculando...</div>
+                </div>
+            </div>
+
+            <!-- Export Excel Button -->
+            <a href="/api/export/excel" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-2 border border-slate-700 transition-colors">
+                <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                <span>Descargar Excel</span>
+            </a>
+        </div>
+
+        <!-- TABS BAR -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-2 py-2 overflow-x-auto">
+            <button data-tab="calculadora" class="tab-btn px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all bg-blue-600 text-white">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                Calculadora 3D & Láser
+            </button>
+            <button data-tab="pedidos" class="tab-btn px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all text-slate-400 hover:bg-slate-800">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
+                Pedidos y Proyectos
+            </button>
+            <button data-tab="balance" class="tab-btn px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all text-slate-400 hover:bg-slate-800">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                Balance & Liquidación
+            </button>
+            <button data-tab="stock" class="tab-btn px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all text-slate-400 hover:bg-slate-800">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+                Stock & Materiales
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN APP CONTAINER -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
+
+        <!-- ================= TAB 1: CALCULADORA ================= -->
+        <section id="tab-calculadora" class="tab-content active space-y-6">
+            <!-- Preset Selector Bar -->
+            <div class="glass-card p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-center gap-3">
+                    <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Plantillas Rápidas:</span>
+                    <select id="calc-preset-select" class="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Personalizado</option>
+                        <option value="llavero-simple">Llavero Simple (1 Color)</option>
+                        <option value="llavero-multicolor">Llavero Multicolor (3 Colores)</option>
+                        <option value="llavero-madera-3d">Llavero 3D + Madera Láser</option>
+                        <option value="portafotos">Portafotos / Decorativo</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-2 text-xs text-slate-400">
+                    <span>Material desde Stock:</span>
+                    <select id="calc-material-select" class="bg-slate-800 border border-slate-700 text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-xs">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+            </div>
+
+            <!-- Two-Column Layout (Inputs on left, Live Results on right) -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+                <!-- LEFT COLUMN: Form Inputs (7 Cols) -->
+                <div class="lg:col-span-7 space-y-5">
+
+                    <!-- Basic Project Data -->
+                    <div class="glass-card p-5 rounded-2xl space-y-4">
+                        <h3 class="text-sm font-bold uppercase tracking-wider text-blue-400 flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Datos Generales del Encargo
+                        </h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-400 mb-1">Nombre del Proyecto / Pieza</label>
+                                <input type="text" id="calc-titulo" value="Llaveros Fin de Curso" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-400 mb-1">Piezas Totales a Fabricar</label>
+                                <input type="number" id="calc-piezas-totales" value="75" min="1" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-bold text-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3D Printing Module -->
+                    <div class="glass-card p-5 rounded-2xl space-y-4">
+                        <h3 class="text-sm font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                            Parámetros de Impresión 3D
+                        </h3>
+
+                        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                            <div>
+                                <label class="block font-medium text-slate-400 mb-1">Precio Filamento (€/kg)</label>
+                                <input type="number" step="0.5" id="calc-precio-kg" value="20.0" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                            </div>
+                            <div>
+                                <label class="block font-medium text-slate-400 mb-1">Gramos por tirada (cama)</label>
+                                <input type="number" step="0.1" id="calc-g-tirada" value="21.0" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                            </div>
+                            <div>
+                                <label class="block font-medium text-slate-400 mb-1">Piezas por tirada</label>
+                                <input type="number" id="calc-piezas-tirada" value="15" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                            </div>
+                            <div>
+                                <label class="block font-medium text-slate-400 mb-1">Colores a imprimir</label>
+                                <input type="number" id="calc-colores" value="1" min="1" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                            </div>
+                            <div>
+                                <label class="block font-medium text-slate-400 mb-1">Horas de Diseño 3D</label>
+                                <input type="number" step="0.5" id="calc-tiempo-diseno-3d" value="2.0" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                            </div>
+                            <div>
+                                <label class="block font-medium text-slate-400 mb-1">Precio hora diseño (€/h)</label>
+                                <input type="number" step="1" id="calc-precio-hora-diseno" value="15.0" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-3 text-xs pt-2 border-t border-slate-800">
+                            <div>
+                                <label class="block text-slate-500 mb-1">Coste cambio tirada (€)</label>
+                                <input type="number" step="0.5" id="calc-coste-cambio-3d" value="2.0" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-300">
+                            </div>
+                            <div>
+                                <label class="block text-slate-500 mb-1">Pérdidas/Merma (%)</label>
+                                <input type="number" step="0.05" id="calc-perdidas-3d" value="0.10" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-300">
+                            </div>
+                            <div>
+                                <label class="block text-slate-500 mb-1">Minutos/tirada (impr.)</label>
+                                <input type="number" id="calc-min-tirada-3d" value="120" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-300">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Laser Cutting Accordion Module -->
+                    <div class="glass-card p-5 rounded-2xl space-y-4">
+                        <div class="flex items-center justify-between">
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="checkbox" id="calc-incluir-laser" class="w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700 focus:ring-blue-500">
+                                <span class="font-bold text-sm uppercase tracking-wider text-amber-400 flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                    Incluir Corte Láser / Madera
+                                </span>
+                            </label>
+                            <span class="text-xs text-slate-500">Opcional</span>
+                        </div>
+
+                        <div id="laser-params-box" class="hidden space-y-3 pt-3 border-t border-slate-800 text-xs">
+                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                <div>
+                                    <label class="block text-slate-400 mb-1">Precio Madera (€/m²)</label>
+                                    <input type="number" step="1" id="calc-precio-m2-madera" value="15.0" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-slate-400 mb-1">Dimensiones Tablero (cm)</label>
+                                    <div class="flex items-center gap-1">
+                                        <input type="number" id="calc-largo-tablero" value="30" class="w-1/2 bg-slate-900 border border-slate-700 rounded px-1.5 py-1.5 text-white text-center">
+                                        <span class="text-slate-500">x</span>
+                                        <input type="number" id="calc-ancho-tablero" value="30" class="w-1/2 bg-slate-900 border border-slate-700 rounded px-1.5 py-1.5 text-white text-center">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-slate-400 mb-1">Piezas por Tablero</label>
+                                    <input type="number" id="calc-piezas-tablero" value="16" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-slate-400 mb-1">Diseño Láser (Horas)</label>
+                                    <input type="number" step="0.5" id="calc-tiempo-diseno-laser" value="0.0" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-slate-400 mb-1">Pérdidas Madera (%)</label>
+                                    <input type="number" step="0.05" id="calc-perdidas-laser" value="0.10" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Assembly & Hardware Module -->
+                    <div class="glass-card p-5 rounded-2xl space-y-4">
+                        <div class="flex items-center justify-between">
+                            <label class="flex items-center gap-3 cursor-pointer">
+                                <input type="checkbox" id="calc-incluir-montaje" class="w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700 focus:ring-blue-500">
+                                <span class="font-bold text-sm uppercase tracking-wider text-purple-400 flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path></svg>
+                                    Montajes & Fornituras
+                                </span>
+                            </label>
+                            <span class="text-xs text-slate-500">Llaveros, imanes, pegado</span>
+                        </div>
+
+                        <div id="montaje-params-box" class="hidden space-y-3 pt-3 border-t border-slate-800 text-xs">
+                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                <div>
+                                    <label class="block text-slate-400 mb-1">Mano obra Pegar (€/ud)</label>
+                                    <input type="number" step="0.05" id="calc-pegar-ud" value="0.0" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-slate-400 mb-1">Poner Llavero (€/ud)</label>
+                                    <input type="number" step="0.05" id="calc-llaveros-ud" value="0.0" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-slate-400 mb-1">Fornituras (€/ud)</label>
+                                    <input type="number" step="0.05" id="calc-fornituras-ud" value="0.0" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-slate-400 mb-1">Coste Cola Fijo (€)</label>
+                                    <input type="number" step="1" id="calc-cola-fijo" value="0.0" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Commercial Conditions (Discount & VAT) -->
+                    <div class="glass-card p-5 rounded-2xl flex flex-wrap items-center justify-between gap-4">
+                        <div class="flex items-center gap-3">
+                            <label class="text-xs font-semibold text-slate-400">Descuento Comercial:</label>
+                            <select id="calc-descuento-pct" class="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded px-2.5 py-1.5">
+                                <option value="0.0">0% (Sin descuento)</option>
+                                <option value="0.05">5% descuento</option>
+                                <option value="0.10">10% descuento</option>
+                                <option value="0.15">15% descuento</option>
+                                <option value="0.20">20% descuento</option>
+                            </select>
+                        </div>
+                        <label class="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-300">
+                            <input type="checkbox" id="calc-aplicar-iva" class="w-4 h-4 rounded text-blue-600 bg-slate-900 border-slate-700">
+                            <span>Aplicar IVA (21%)</span>
+                        </label>
+                    </div>
+
+                </div>
+
+                <!-- RIGHT COLUMN: Live Calculation Results (5 Cols) -->
+                <div class="lg:col-span-5 space-y-5">
+                    
+                    <!-- Main Price Hero Card -->
+                    <div class="glass-card p-6 rounded-3xl border-2 border-blue-500/30 shadow-2xl shadow-blue-500/10 space-y-6 relative overflow-hidden">
+                        <div class="absolute -right-10 -bottom-10 w-40 h-40 bg-blue-500/10 rounded-full blur-2xl pointer-events-none"></div>
+
+                        <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+                            <span class="text-xs font-bold uppercase tracking-widest text-slate-400">Presupuesto Sugerido</span>
+                            <span class="px-2.5 py-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full text-xs font-bold">20% Beneficio Inc.</span>
+                        </div>
+
+                        <div class="space-y-2">
+                            <div class="text-slate-400 text-xs uppercase tracking-wider font-semibold">Precio por Pieza</div>
+                            <div class="flex items-baseline gap-2">
+                                <span id="res-precio-ud" class="text-5xl font-black font-mono tracking-tight text-white">0.00 €</span>
+                                <span class="text-slate-400 text-sm">/ unidad</span>
+                            </div>
+                        </div>
+
+                        <div class="p-4 bg-slate-900/80 border border-slate-800 rounded-2xl flex items-center justify-between">
+                            <div>
+                                <span class="text-xs text-slate-400 block">Total del Encargo:</span>
+                                <span id="res-precio-total" class="text-2xl font-black font-mono text-emerald-400">0.00 €</span>
+                            </div>
+                            <div class="text-right text-xs text-slate-400 space-y-0.5">
+                                <div>Base: <span id="res-base-total" class="font-mono text-slate-300">0.00 €</span></div>
+                                <div>Dto: <span id="res-descuento-val" class="font-mono text-amber-400">-0.00 €</span></div>
+                                <div>IVA: <span id="res-iva-val" class="font-mono text-slate-300">0.00 €</span></div>
+                            </div>
+                        </div>
+
+                        <!-- Safety Margin / Minimum Break-even Floor -->
+                        <div class="p-3.5 bg-amber-950/20 border border-amber-900/40 rounded-xl space-y-1 text-xs">
+                            <div class="flex items-center justify-between">
+                                <span class="font-bold text-amber-400 flex items-center gap-1.5">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                                    Precio Suelo de Seguridad:
+                                </span>
+                                <span id="res-min-suelo-total" class="font-mono font-bold text-amber-300">0.00 €</span>
+                            </div>
+                            <p class="text-slate-400 text-[11px] leading-relaxed">
+                                Coste de material bruto: <span id="res-min-suelo-ud" class="font-mono text-amber-200">0.00 €/ud</span>. 
+                                Margen de maniobra en negociación: <strong id="res-margen-maniobra" class="text-emerald-400 font-mono">0.00 €</strong>.
+                            </p>
+                        </div>
+
+                        <!-- Production and Time Metrics -->
+                        <div class="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800 text-center text-xs">
+                            <div class="p-2 bg-slate-900/50 rounded-lg">
+                                <span class="text-slate-500 block text-[10px] uppercase">Tiradas</span>
+                                <span id="res-tiradas-3d" class="font-bold text-slate-200 font-mono">0</span>
+                            </div>
+                            <div class="p-2 bg-slate-900/50 rounded-lg">
+                                <span class="text-slate-500 block text-[10px] uppercase">Tiempo Total</span>
+                                <span id="res-tiempo-total" class="font-bold text-slate-200 font-mono">0 h</span>
+                            </div>
+                            <div class="p-2 bg-slate-900/50 rounded-lg">
+                                <span class="text-slate-500 block text-[10px] uppercase">Rendimiento</span>
+                                <span id="res-rendimiento-hora" class="font-bold text-emerald-400 font-mono">0 €/h</span>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="space-y-2 pt-2">
+                            <button onclick="crearPedidoDesdeCalculo()" class="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition-all">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                                Guardar como Nuevo Pedido
+                            </button>
+                            <button onclick="copiarPresupuestoWhatsApp()" class="w-full py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-700 transition-colors">
+                                <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                                Copiar Presupuesto para WhatsApp
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Cost Breakdown Details -->
+                    <div class="glass-card p-5 rounded-2xl space-y-3 text-xs">
+                        <h4 class="font-bold text-slate-300 uppercase tracking-wider text-[11px]">Desglose de Costes Internos</h4>
+                        
+                        <div id="detail-3d-box" class="space-y-1.5">
+                            <div class="flex justify-between text-slate-400 font-semibold text-emerald-400">
+                                <span>Módulo 3D</span>
+                                <span id="det-3d-total" class="font-mono">0.00 €</span>
+                            </div>
+                            <div class="flex justify-between text-slate-500 pl-2">
+                                <span>• Material (con 10% merma)</span>
+                                <span id="det-3d-mat" class="font-mono">0.00 €</span>
+                            </div>
+                            <div class="flex justify-between text-slate-500 pl-2">
+                                <span>• Tiradas / Mano de obra cama</span>
+                                <span id="det-3d-tiradas" class="font-mono">0.00 €</span>
+                            </div>
+                            <div class="flex justify-between text-slate-500 pl-2">
+                                <span>• Tiempo de diseño</span>
+                                <span id="det-3d-diseno" class="font-mono">0.00 €</span>
+                            </div>
+                            <div class="flex justify-between text-slate-500 pl-2">
+                                <span>• Recargos (colores + desgaste + trámites)</span>
+                                <span id="det-3d-recargos" class="font-mono">0.00 €</span>
+                            </div>
+                            <div class="flex justify-between text-slate-500 pl-2">
+                                <span>• Margen de Beneficio</span>
+                                <span id="det-3d-beneficio" class="font-mono">0.00 €</span>
+                            </div>
+                        </div>
+
+                        <div id="detail-laser-box" class="hidden pt-2 border-t border-slate-800 space-y-1.5">
+                            <div class="flex justify-between text-amber-400 font-semibold">
+                                <span>Módulo Corte Láser</span>
+                                <span id="det-laser-total" class="font-mono">0.00 €</span>
+                            </div>
+                            <div class="flex justify-between text-slate-500 pl-2">
+                                <span>• Tableros madera</span>
+                                <span id="det-laser-tableros" class="font-mono">0.00 €</span>
+                            </div>
+                        </div>
+
+                        <div id="detail-montaje-box" class="hidden pt-2 border-t border-slate-800 space-y-1.5">
+                            <div class="flex justify-between text-purple-400 font-semibold">
+                                <span>Módulo Montaje</span>
+                                <span id="det-montaje-total" class="font-mono">0.00 €</span>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ================= TAB 2: PEDIDOS Y PROYECTOS ================= -->
+        <section id="tab-pedidos" class="tab-content space-y-6">
+            <!-- Controls & Filter Bar -->
+            <div class="glass-card p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div class="flex flex-wrap items-center gap-2">
+                    <button onclick="filtrarPedidos('TODOS')" data-filter="TODOS" class="filter-pedidos-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 text-white">Todos</button>
+                    <button onclick="filtrarPedidos('X')" data-filter="X" class="filter-pedidos-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:bg-slate-800 flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-red-500"></span>
+                        Pendientes (X)
+                    </button>
+                    <button onclick="filtrarPedidos('J')" data-filter="J" class="filter-pedidos-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:bg-slate-800 flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        Cobró Javi
+                    </button>
+                    <button onclick="filtrarPedidos('P')" data-filter="P" class="filter-pedidos-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:bg-slate-800 flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                        Cobró Pablo
+                    </button>
+                    <button onclick="filtrarPedidos('W')" data-filter="W" class="filter-pedidos-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:bg-slate-800 flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+                        Empresa (W)
+                    </button>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <div class="relative">
+                        <input type="text" id="search-pedidos" placeholder="Buscar pedido, cliente..." class="w-64 bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <svg class="w-4 h-4 text-slate-500 absolute left-2.5 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                    </div>
+                    <button onclick="abrirModalNuevoPedido()" class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-600/30">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                        Nuevo Pedido
+                    </button>
+                </div>
+            </div>
+
+            <!-- Pedidos Table -->
+            <div class="glass-card rounded-2xl overflow-hidden border border-slate-800 shadow-xl">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-slate-800 bg-slate-900/60 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                <th class="py-3 px-4">Nº</th>
+                                <th class="py-3 px-4">Proyecto & Cliente</th>
+                                <th class="py-3 px-4 text-center">Uds</th>
+                                <th class="py-3 px-4 text-right">Precio Ud</th>
+                                <th class="py-3 px-4 text-right">Total</th>
+                                <th class="py-3 px-4 text-center">¿Quién Hace?</th>
+                                <th class="py-3 px-4 text-center">¿Quién Cobra?</th>
+                                <th class="py-3 px-4 text-right">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pedidos-table-body" class="divide-y divide-slate-800/60">
+                            <!-- Populated dynamically via app.js -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= TAB 3: BALANCE Y LIQUIDACIÓN ================= -->
+        <section id="tab-balance" class="tab-content space-y-6">
+
+            <!-- Settlement Highlight Card ("Cuentas Claras") -->
+            <div class="glass-card p-6 rounded-3xl border-2 border-emerald-500/30 bg-gradient-to-r from-emerald-950/20 via-slate-900 to-blue-950/20 shadow-2xl relative overflow-hidden">
+                <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                    <div class="space-y-1">
+                        <span class="text-xs font-bold uppercase tracking-widest text-emerald-400 flex items-center gap-1.5">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Liquidación Automática al 50/50
+                        </span>
+                        <h2 id="settlement-message" class="text-xl md:text-2xl font-black text-white tracking-tight leading-snug">Calculando saldo entre socios...</h2>
+                        <p class="text-xs text-slate-400">
+                            Compensación exacta considerando cobros en mano y gastos de material adelantados por cada uno.
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-4 bg-slate-900/80 p-3 rounded-2xl border border-slate-800 text-xs">
+                        <div class="text-center px-2">
+                            <span class="text-slate-400 block">Neto Pablo</span>
+                            <span id="settlement-pablo-net" class="font-bold font-mono text-blue-400 text-sm">0.00 €</span>
+                        </div>
+                        <div class="w-px h-8 bg-slate-800"></div>
+                        <div class="text-center px-2">
+                            <span class="text-slate-400 block">Neto Javi</span>
+                            <span id="settlement-javi-net" class="font-bold font-mono text-emerald-400 text-sm">0.00 €</span>
+                        </div>
+                        <div class="w-px h-8 bg-slate-800"></div>
+                        <div class="text-center px-2">
+                            <span class="text-slate-400 block">Mitad Ideal (50%)</span>
+                            <span id="settlement-ideal-half" class="font-bold font-mono text-white text-sm">0.00 €</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Financial Summary Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="glass-card p-4 rounded-2xl">
+                    <span class="text-xs text-slate-400 block">Total Facturado</span>
+                    <span id="bal-total-ingresos" class="text-xl font-black font-mono text-white">0.00 €</span>
+                </div>
+                <div class="glass-card p-4 rounded-2xl">
+                    <span class="text-xs text-slate-400 block">Cobrado por Pablo</span>
+                    <span id="bal-cobrado-pablo" class="text-xl font-black font-mono text-blue-400">0.00 €</span>
+                </div>
+                <div class="glass-card p-4 rounded-2xl">
+                    <span class="text-xs text-slate-400 block">Cobrado por Javi</span>
+                    <span id="bal-cobrado-javi" class="text-xl font-black font-mono text-emerald-400">0.00 €</span>
+                </div>
+                <div class="glass-card p-4 rounded-2xl border border-red-500/30">
+                    <span class="text-xs text-red-400 block font-semibold">Pendiente de Cobro</span>
+                    <span id="bal-pendiente" class="text-xl font-black font-mono text-red-400">0.00 €</span>
+                </div>
+            </div>
+
+            <!-- Chart & Pending Orders Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                <!-- Comparison Chart (7 Cols) -->
+                <div class="lg:col-span-7 glass-card p-5 rounded-2xl space-y-4">
+                    <h3 class="text-sm font-bold text-slate-300 uppercase tracking-wider">Comparativa de Socios</h3>
+                    <div class="h-64 w-full">
+                        <canvas id="balance-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Uncollected Orders Alert Box (5 Cols) -->
+                <div class="lg:col-span-5 glass-card p-5 rounded-2xl space-y-4 border border-red-900/30">
+                    <h3 class="text-sm font-bold text-red-400 uppercase tracking-wider flex items-center justify-between">
+                        <span>Pedidos por Cobrar</span>
+                        <span class="text-xs bg-red-950 px-2 py-0.5 rounded border border-red-800 text-red-300">Acción requerida</span>
+                    </h3>
+                    <div id="pending-orders-list" class="space-y-2 max-h-64 overflow-y-auto pr-1">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Expenses Lists (Material & Machinery) -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Material Expenses -->
+                <div class="glass-card p-5 rounded-2xl space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="font-bold text-sm text-slate-200">Gastos de Material (Filamentos & Suministros)</h3>
+                            <span class="text-xs text-slate-400">Total: <strong id="bal-mat-total" class="text-slate-200 font-mono">0.00 €</strong> (Pablo: <span id="bal-mat-pablo">0€</span>, Javi: <span id="bal-mat-javi">0€</span>)</span>
+                        </div>
+                        <button onclick="abrirModalGasto()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-semibold border border-slate-700">+ Añadir</button>
+                    </div>
+                    <div class="max-h-64 overflow-y-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-slate-900 text-slate-400 sticky top-0">
+                                <tr>
+                                    <th class="py-2 px-3">Concepto</th>
+                                    <th class="py-2 px-3">Fecha</th>
+                                    <th class="py-2 px-3 text-right">Precio</th>
+                                    <th class="py-2 px-3 text-center">Pagó</th>
+                                    <th class="py-2 px-3 text-center">Ticket</th>
+                                </tr>
+                            </thead>
+                            <tbody id="gastos-material-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Machinery Expenses -->
+                <div class="glass-card p-5 rounded-2xl space-y-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="font-bold text-sm text-slate-200">Maquinaria, Repuestos & Taller</h3>
+                            <span class="text-xs text-slate-400">Total: <strong id="bal-maq-total" class="text-slate-200 font-mono">0.00 €</strong> | Fondo CI acumulado: <strong id="bal-fondo-ci" class="text-indigo-400 font-mono">0.00 €</strong></span>
+                        </div>
+                        <button onclick="abrirModalGasto()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-xs font-semibold border border-slate-700">+ Añadir</button>
+                    </div>
+                    <div class="max-h-64 overflow-y-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-slate-900 text-slate-400 sticky top-0">
+                                <tr>
+                                    <th class="py-2 px-3">Máquina / Pieza</th>
+                                    <th class="py-2 px-3">Fecha</th>
+                                    <th class="py-2 px-3 text-right">Precio</th>
+                                    <th class="py-2 px-3 text-center">Pagó</th>
+                                    <th class="py-2 px-3 text-center">Ticket</th>
+                                </tr>
+                            </thead>
+                            <tbody id="gastos-maquinaria-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- ================= TAB 4: STOCK Y MATERIALES ================= -->
+        <section id="tab-stock" class="tab-content space-y-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 class="text-lg font-bold text-white">Inventario de Filamentos en Stock</h2>
+                    <p class="text-xs text-slate-400">Control de bobinas por color y socio (Pablo / Javi)</p>
+                </div>
+            </div>
+
+            <!-- Filaments Grid -->
+            <div id="stock-filamentos-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <!-- Dynamically populated via app.js -->
+            </div>
+
+            <!-- Fornituras & Consumables Section -->
+            <div class="glass-card p-5 rounded-2xl space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="font-bold text-sm text-slate-200">Fornituras, Llaveros & Tableros</h3>
+                        <p class="text-xs text-slate-400">Accesorios montados en llaveros, pins e imanes</p>
+                    </div>
+                </div>
+                <div id="fornituras-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- ================= MODALS ================= -->
+
+    <!-- Modal Pedido (Crear / Editar) -->
+    <div id="modal-pedido" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="glass-card w-full max-w-lg p-6 rounded-3xl border border-slate-700 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 id="modal-pedido-title" class="font-bold text-lg text-white">Guardar Pedido</h3>
+                <button onclick="cerrarModalPedido()" class="text-slate-400 hover:text-white">&times;</button>
+            </div>
+            <form onsubmit="guardarPedido(event)" class="space-y-4 text-xs">
+                <input type="hidden" id="form-pedido-id">
+                <div>
+                    <label class="block text-slate-400 mb-1">Título del Proyecto</label>
+                    <input type="text" id="form-pedido-titulo" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-400 mb-1">Cliente</label>
+                        <input type="text" id="form-pedido-cliente" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Fecha</label>
+                        <input type="date" id="form-pedido-fecha" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
+                    </div>
+                </div>
+                <div class="grid grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-slate-400 mb-1">Unidades</label>
+                        <input type="number" id="form-pedido-unidades" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Precio Ud (€)</label>
+                        <input type="number" step="0.01" id="form-pedido-precio-ud" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Precio Total (€)</label>
+                        <input type="number" step="0.01" id="form-pedido-precio-total" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 font-bold text-emerald-400">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-400 mb-1">¿Quién lo hace / imprime?</label>
+                        <select id="form-pedido-hace" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
+                            <option value="J">Javi (J)</option>
+                            <option value="P">Pablo (P)</option>
+                            <option value="W">Ambos / Taller (W)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">¿Quién cobra el dinero?</label>
+                        <select id="form-pedido-cobra" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
+                            <option value="X">Pendiente de cobro (X)</option>
+                            <option value="J">Cobrado por Javi (J)</option>
+                            <option value="P">Cobrado por Pablo (P)</option>
+                            <option value="W">Cuenta común / Empresa (W)</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-slate-400 mb-1">Notas / Observaciones</label>
+                    <textarea id="form-pedido-notas" rows="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white"></textarea>
+                </div>
+                <div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                    <button type="button" onclick="cerrarModalPedido()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow-md shadow-blue-600/30">Guardar Pedido</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Stock (Editar) -->
+    <div id="modal-stock" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="glass-card w-full max-w-md p-6 rounded-3xl border border-slate-700 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 class="font-bold text-base text-white">Ajustar Bobina de Material</h3>
+                <button onclick="cerrarModalStock()" class="text-slate-400 hover:text-white">&times;</button>
+            </div>
+            <form onsubmit="guardarStockModal(event)" class="space-y-4 text-xs">
+                <input type="hidden" id="form-stock-id">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-400 mb-1">Tipo</label>
+                        <input type="text" id="form-stock-tipo" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Color</label>
+                        <input type="text" id="form-stock-color" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-blue-400 mb-1 font-semibold">Gramos de Pablo (g)</label>
+                        <input type="number" id="form-stock-pablo" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-emerald-400 mb-1 font-semibold">Gramos de Javi (g)</label>
+                        <input type="number" id="form-stock-javi" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-slate-400 mb-1">Precio estimado (€/kg)</label>
+                    <input type="number" step="0.5" id="form-stock-precio" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                </div>
+                <div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                    <button type="button" onclick="cerrarModalStock()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded">Cancelar</button>
+                    <button type="submit" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Registrar Gasto -->
+    <div id="modal-gasto" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="glass-card w-full max-w-md p-6 rounded-3xl border border-slate-700 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 class="font-bold text-base text-white">Registrar Nuevo Gasto</h3>
+                <button onclick="cerrarModalGasto()" class="text-slate-400 hover:text-white">&times;</button>
+            </div>
+            <form onsubmit="guardarGasto(event)" class="space-y-4 text-xs">
+                <div>
+                    <label class="block text-slate-400 mb-1">Tipo de Gasto</label>
+                    <select id="form-gasto-tipo" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                        <option value="material">Material / Filamento / Fornituras</option>
+                        <option value="maquinaria">Maquinaria / Repuestos / Herramientas</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-slate-400 mb-1">Concepto / Descripción</label>
+                    <input type="text" id="form-gasto-concepto" required placeholder="Ej. 2kg PLA Blanco o Boquilla 0.4" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-400 mb-1">Importe (€)</label>
+                        <input type="number" step="0.01" id="form-gasto-precio" required class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white font-bold">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">¿Quién lo pagó?</label>
+                        <select id="form-gasto-pagado" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                            <option value="P">Pablo (P)</option>
+                            <option value="J">Javi (J)</option>
+                            <option value="Wp">Empresa vía Pablo (Wp)</option>
+                            <option value="Wj">Empresa vía Javi (Wj)</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-slate-400 mb-1">Fecha</label>
+                    <input type="date" id="form-gasto-fecha" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                </div>
+                <div>
+                    <label class="block text-slate-400 mb-1">Enlace a Factura / Recibo (Google Drive)</label>
+                    <input type="url" id="form-gasto-enlace" placeholder="https://drive.google.com/..." class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                </div>
+                <div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
+                    <button type="button" onclick="cerrarModalGasto()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded">Cancelar</button>
+                    <button type="submit" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded">Registrar Gasto</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast-notification" class="fixed bottom-6 right-6 z-50 transition-all duration-300 transform translate-y-4 opacity-0 pointer-events-none bg-slate-900 border border-slate-700 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-sm">
+        <div class="w-2.5 h-2.5 rounded-full bg-emerald-400"></div>
+        <span id="toast-message">Mensaje de notificación</span>
+    </div>
+
+    <!-- App JS -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

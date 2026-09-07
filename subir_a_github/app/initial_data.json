@@ -1,0 +1,942 @@
+{
+  "pedidos": [
+    {
+      "id": "025w",
+      "titulo": "llaveros interruptores (curso 3d / fin de curso javi)",
+      "cliente": "W",
+      "fecha": "2026-06-01",
+      "unidades": 0,
+      "precio_unidad": 0,
+      "precio_total": 0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 20.0,
+      "beneficio": -20.0,
+      "quien_hace": "J",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "025",
+      "titulo": "llaveros fin de curso (lapiz, ADN)",
+      "cliente": "Camilo / Isabel",
+      "fecha": "2026-06-01",
+      "unidades": 64.0,
+      "precio_unidad": 1.5,
+      "precio_total": 96.0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 19.2,
+      "beneficio": 76.8,
+      "quien_hace": "J",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "024",
+      "titulo": "llaveros slicerin",
+      "cliente": "Amalia",
+      "fecha": "2026-06-01",
+      "unidades": 21.0,
+      "precio_unidad": 1.0,
+      "precio_total": 21.0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 4.2,
+      "beneficio": 16.8,
+      "quien_hace": "J",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "023",
+      "titulo": "baritas Harry Poter",
+      "cliente": "Amalia",
+      "fecha": "2026-06-01",
+      "unidades": 79.0,
+      "precio_unidad": 0.9,
+      "precio_total": 71.1,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 14.22,
+      "beneficio": 56.88,
+      "quien_hace": "J",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "022",
+      "titulo": "Caja estampas mundial 26",
+      "cliente": "W",
+      "fecha": "2026-05-01",
+      "unidades": 0,
+      "precio_unidad": 0,
+      "precio_total": 0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 3.0,
+      "beneficio": -3.0,
+      "quien_hace": "J",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "021",
+      "titulo": "moneda pirata",
+      "cliente": "almu",
+      "fecha": "2026-06-01",
+      "unidades": 63.0,
+      "precio_unidad": 1.5,
+      "precio_total": 94.5,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 18.9,
+      "beneficio": 75.6,
+      "quien_hace": "J",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "020",
+      "titulo": "timones piratas",
+      "cliente": "Alex",
+      "fecha": "2026-03-01",
+      "unidades": 250.0,
+      "precio_unidad": 0.65,
+      "precio_total": 162.5,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 32.5,
+      "beneficio": 130.0,
+      "quien_hace": "W",
+      "quien_cobra": "X"
+    },
+    {
+      "id": "019",
+      "titulo": "llavero coro inmaculada 30",
+      "cliente": "Carmen",
+      "fecha": "2026-03-01",
+      "unidades": 20.0,
+      "precio_unidad": 2.5,
+      "precio_total": 50.0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 10.0,
+      "beneficio": 40.0,
+      "quien_hace": "J",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "018",
+      "titulo": "Llavero Climate WISE",
+      "cliente": "Azu",
+      "fecha": "2026-03-01",
+      "unidades": 27.0,
+      "precio_unidad": 2.5,
+      "precio_total": 67.5,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 13.5,
+      "beneficio": 54.0,
+      "quien_hace": "J",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "017",
+      "titulo": "piezas corbatín huestes cadí",
+      "cliente": "Reyes",
+      "fecha": "2026-02-01",
+      "unidades": 15.0,
+      "precio_unidad": 0.5,
+      "precio_total": 7.5,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 1.5,
+      "beneficio": 6.0,
+      "quien_hace": "W",
+      "quien_cobra": "X"
+    },
+    {
+      "id": "016",
+      "titulo": "Pólvora",
+      "cliente": "Cuñao",
+      "fecha": "2026-02-01",
+      "unidades": 5.0,
+      "precio_unidad": 2.0,
+      "precio_total": 10.0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 2.0,
+      "beneficio": 8.0,
+      "quien_hace": "P",
+      "quien_cobra": "P"
+    },
+    {
+      "id": "015w",
+      "titulo": "Bote Nombre Simón, Ruby",
+      "cliente": "W- Javi",
+      "fecha": "2026-01-01",
+      "unidades": 0,
+      "precio_unidad": 0,
+      "precio_total": 0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 6.0,
+      "beneficio": -6.0,
+      "quien_hace": "J",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "015",
+      "titulo": "Bote Nombre",
+      "cliente": "Almu",
+      "fecha": "2026-01-01",
+      "unidades": 2.0,
+      "precio_unidad": 15.0,
+      "precio_total": 30.0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 6.0,
+      "beneficio": 24.0,
+      "quien_hace": "J",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "014",
+      "titulo": "Desdentado",
+      "cliente": "Camilo",
+      "fecha": "2026-01-01",
+      "unidades": 1.0,
+      "precio_unidad": 5.0,
+      "precio_total": 5.0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 1.0,
+      "beneficio": 4.0,
+      "quien_hace": "P",
+      "quien_cobra": "P"
+    },
+    {
+      "id": "013",
+      "titulo": "llavero Slicerin",
+      "cliente": "Tutores",
+      "fecha": "2026-02-01",
+      "unidades": 21.0,
+      "precio_unidad": 1.3,
+      "precio_total": 27.3,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 5.46,
+      "beneficio": 21.84,
+      "quien_hace": "P",
+      "quien_cobra": "P"
+    },
+    {
+      "id": "w001",
+      "titulo": "Think kids",
+      "cliente": "W",
+      "fecha": "curso 2025-26",
+      "unidades": 0,
+      "precio_unidad": 0,
+      "precio_total": 0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 80.0,
+      "beneficio": -80.0,
+      "quien_hace": "P",
+      "quien_cobra": "P"
+    },
+    {
+      "id": "012",
+      "titulo": "insignia hueste",
+      "cliente": "huestes",
+      "fecha": "2026-01-01",
+      "unidades": 25.0,
+      "precio_unidad": 1.7,
+      "precio_total": 42.5,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 8.5,
+      "beneficio": 34.0,
+      "quien_hace": "P",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "011",
+      "titulo": "Estrella Navidad",
+      "cliente": "Paloma",
+      "fecha": "2025-12-01",
+      "unidades": 26.0,
+      "precio_unidad": 1.0,
+      "precio_total": 26.0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 5.2,
+      "beneficio": 20.8,
+      "quien_hace": "W",
+      "quien_cobra": "P"
+    },
+    {
+      "id": "010",
+      "titulo": "Traje Santi",
+      "cliente": "Alex",
+      "fecha": "2026-01-01",
+      "unidades": 1200.0,
+      "precio_unidad": 0.5,
+      "precio_total": 600.0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 120.0,
+      "beneficio": 480.0,
+      "quien_hace": "W",
+      "quien_cobra": "P"
+    },
+    {
+      "id": "009",
+      "titulo": "Ceditos San Antón",
+      "cliente": "Mayordomía",
+      "fecha": "2025-09-01",
+      "unidades": 40.0,
+      "precio_unidad": 1.5,
+      "precio_total": 60.0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 12.0,
+      "beneficio": 48.0,
+      "quien_hace": "P",
+      "quien_cobra": "P"
+    },
+    {
+      "id": "008",
+      "titulo": "San Antón Grande + soporte",
+      "cliente": "Mayordomía",
+      "fecha": "2025-09-01",
+      "unidades": 11.0,
+      "precio_unidad": 2.0,
+      "precio_total": 22.0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 4.4,
+      "beneficio": 17.6,
+      "quien_hace": "W",
+      "quien_cobra": "P"
+    },
+    {
+      "id": "007",
+      "titulo": "llaveros corazón 3ºprimaria",
+      "cliente": "Almu, Chón, Ana",
+      "fecha": "2025-06-01",
+      "unidades": 75.0,
+      "precio_unidad": 1.5,
+      "precio_total": 112.5,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 22.5,
+      "beneficio": 90.0,
+      "quien_hace": "J",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "006w",
+      "titulo": "llaveros 2ºESO",
+      "cliente": "W- Clase Javi",
+      "fecha": "2025-06-01",
+      "unidades": 30.0,
+      "precio_unidad": 1.0,
+      "precio_total": 0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 6.0,
+      "beneficio": -6.0,
+      "quien_hace": "J",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "006",
+      "titulo": "llaveros 2ºESO",
+      "cliente": "Camilo, Isabel",
+      "fecha": "2025-06-01",
+      "unidades": 60.0,
+      "precio_unidad": 1.0,
+      "precio_total": 60.0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 12.0,
+      "beneficio": 48.0,
+      "quien_hace": "J",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "005",
+      "titulo": "llaveros LOVE BOAT",
+      "cliente": "Azu, Chus",
+      "fecha": "2025-06-01",
+      "unidades": 63.0,
+      "precio_unidad": 1.5,
+      "precio_total": 94.5,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 18.9,
+      "beneficio": 75.6,
+      "quien_hace": "J",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "004w",
+      "titulo": "llaveros 5º fin de curso",
+      "cliente": "W- Clase Pablo",
+      "fecha": "2025-06-01",
+      "unidades": 25.0,
+      "precio_unidad": 1.5,
+      "precio_total": 0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 7.5,
+      "beneficio": -7.5,
+      "quien_hace": "W",
+      "quien_cobra": "W"
+    },
+    {
+      "id": "004",
+      "titulo": "llaveros 5º fin de curso",
+      "cliente": "Tutores",
+      "fecha": "2025-06-01",
+      "unidades": 50.0,
+      "precio_unidad": 1.5,
+      "precio_total": 75.0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 15.0,
+      "beneficio": 60.0,
+      "quien_hace": "W",
+      "quien_cobra": "P"
+    },
+    {
+      "id": "003",
+      "titulo": "llaveros 6º fin de curso",
+      "cliente": "Pilar",
+      "fecha": "2025-06-01",
+      "unidades": 67.0,
+      "precio_unidad": 1.5,
+      "precio_total": 100.5,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 20.1,
+      "beneficio": 80.4,
+      "quien_hace": "P",
+      "quien_cobra": "P"
+    },
+    {
+      "id": "002",
+      "titulo": "Portafotos Hugo",
+      "cliente": "María José",
+      "fecha": "2025 mayo",
+      "unidades": 10.0,
+      "precio_unidad": 3.0,
+      "precio_total": 30.0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 6.0,
+      "beneficio": 24.0,
+      "quien_hace": "W",
+      "quien_cobra": "J"
+    },
+    {
+      "id": "001",
+      "titulo": "Portafotos Hugo",
+      "cliente": "María José",
+      "fecha": "2025 mayo",
+      "unidades": 40.0,
+      "precio_unidad": 3.0,
+      "precio_total": 120.0,
+      "pct_ci": 0.2,
+      "gastos_indirectos": 24.0,
+      "beneficio": 96.0,
+      "quien_hace": "W",
+      "quien_cobra": "P"
+    }
+  ],
+  "gastos_material": [
+    {
+      "concepto": "100 nfc rectangular",
+      "fecha": "2026-06-11",
+      "precio": 5.6,
+      "pagado_por": "P",
+      "enlace": ""
+    },
+    {
+      "concepto": "Nfc 100 rectangular",
+      "fecha": "2026-06-11",
+      "precio": 37.95,
+      "pagado_por": "P",
+      "enlace": ""
+    },
+    {
+      "concepto": "1 kg pla azul",
+      "fecha": "2026-06-11",
+      "precio": 14.24,
+      "pagado_por": "P",
+      "enlace": ""
+    },
+    {
+      "concepto": "1 kg pla negro",
+      "fecha": "2026-06-10",
+      "precio": 15.99,
+      "pagado_por": "P",
+      "enlace": ""
+    },
+    {
+      "concepto": "100 llaveros",
+      "fecha": "2026-06-10",
+      "precio": 7.99,
+      "pagado_por": "P",
+      "enlace": ""
+    },
+    {
+      "concepto": "100 llaveros",
+      "fecha": "2026-03-15",
+      "precio": 6.99,
+      "pagado_por": "J",
+      "enlace": "https://drive.google.com/file/d/1HEHTXmz2uCbfKQ80ELptTv-9Ky30iKzL/view?usp=sharing"
+    },
+    {
+      "concepto": "1kg gris  oscuro (azulado)",
+      "fecha": "2025-07-11",
+      "precio": 11.72,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1WTbCglEW1ZB5qwplLoJIM6h3LQXUgwrF/view?usp=sharing"
+    },
+    {
+      "concepto": "1kg verde pastel",
+      "fecha": "2024-07-30",
+      "precio": 17.85,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1DxGp_QqBP3MYk-M0Uco0P2Cqh3NQwlFR/view?usp=sharing"
+    },
+    {
+      "concepto": "1kg granate",
+      "fecha": "2025-07-12",
+      "precio": 12.34,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1pd56yHHZUwVHtHPzWksBZRsSN_Teo_BB/view?usp=sharing"
+    },
+    {
+      "concepto": "1kg rojo",
+      "fecha": "2025-06-16",
+      "precio": 15.95,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1cqdlNX6fLoz719TYTY-TgT6jvV7___f1/view?usp=sharing"
+    },
+    {
+      "concepto": "1kg azul oscuro cole",
+      "fecha": "2025-07-11",
+      "precio": 11.72,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1WTbCglEW1ZB5qwplLoJIM6h3LQXUgwrF/view?usp=sharing"
+    },
+    {
+      "concepto": "1kg azul celeste",
+      "fecha": "2025-06-05",
+      "precio": 16.04,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1bmPpZr2Yh_BaSWB_52Qg5E_cV6t0mhWX/view?usp=sharing"
+    },
+    {
+      "concepto": "1kg amarillo",
+      "fecha": "2025-07-09",
+      "precio": 13.55,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1LITpPDfn1QIzCwbHz8_5nivERZs3Zdsq/view?usp=drive_link"
+    },
+    {
+      "concepto": "1kg dorado viejo",
+      "fecha": "2025-07-12",
+      "precio": 12.34,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1pd56yHHZUwVHtHPzWksBZRsSN_Teo_BB/view?usp=sharing"
+    },
+    {
+      "concepto": "1kg dorado nuevo",
+      "fecha": "2025-12-18",
+      "precio": 26.99,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1PdUOYjUI3z-y6IV_40cRhiHZvmrRfaaY/view?usp=sharing"
+    },
+    {
+      "concepto": "1kg skin",
+      "fecha": "2025-08-10",
+      "precio": 15.99,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/11iT4VqqNz8zL0qacvD2Z7_769LKmu8cU/view?usp=sharing"
+    },
+    {
+      "concepto": "2kg naranja",
+      "fecha": "2025-09-07",
+      "precio": 35.98,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/10ljRjtd2lVHfHxZS22VZQAAv9oOTq8UE/view?usp=sharing"
+    },
+    {
+      "concepto": "4kg blanco",
+      "fecha": "2025-07-11",
+      "precio": 40.71,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1WTbCglEW1ZB5qwplLoJIM6h3LQXUgwrF/view?usp=sharing"
+    },
+    {
+      "concepto": "1kg marrón oscuro",
+      "fecha": "2024-09-23",
+      "precio": 19.95,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/19CmozFjIPHuuwIchwpckWWldsg4Ln3b5/view?usp=sharing"
+    },
+    {
+      "concepto": "1kg verde",
+      "fecha": "2025-06-27",
+      "precio": 18.99,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1FF0MeTYC00qhbm6y9_AlacTVdVzBl0vQ/view?usp=sharing"
+    },
+    {
+      "concepto": "1kg marrón",
+      "fecha": "2025-06-27",
+      "precio": 16.95,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1FF0MeTYC00qhbm6y9_AlacTVdVzBl0vQ/view?usp=sharing"
+    },
+    {
+      "concepto": "1kg blanco",
+      "fecha": "2025-12-25",
+      "precio": 13.45,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1Aj2Qi1KCJYfJT5jfeVpMx4cfmXBhYYQ2/view?usp=drive_link"
+    },
+    {
+      "concepto": "1kg gris claro",
+      "fecha": "2025-11-21",
+      "precio": 14.56,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/199R9gdWgpfwk6kq3dqwfo5i99v_9Fn7P/view?usp=drive_link"
+    },
+    {
+      "concepto": "1kg gris oscuro",
+      "fecha": "2026-01-19",
+      "precio": 17.99,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1xI98zUXxXHn4TZxZmyDY3y5nDoE6r_wY/view?usp=drive_link"
+    },
+    {
+      "concepto": "4kg negro",
+      "fecha": "2025-08-10",
+      "precio": 37.29,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/15KNFFx4kh0qbNqb_scrFqMO_x0iP3Hdy/view?usp=drive_link"
+    },
+    {
+      "concepto": "1kg plata",
+      "fecha": "2025-11-03",
+      "precio": 17.99,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1W47CANbu015iK1ZOlNJhf2Hcem4an9WF/view?usp=drive_link"
+    },
+    {
+      "concepto": "300g verde",
+      "fecha": "2026-01-14",
+      "precio": 7.99,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1GK_chtcUflo22EKXkc4UrdiPcZVCo79j/view?usp=drive_link"
+    },
+    {
+      "concepto": "2kg rosa",
+      "fecha": "2026-01-19",
+      "precio": 26.99,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1GI_X5F67DR2GIx_ddNje7n8MpQcLSMvL/view?usp=drive_link"
+    },
+    {
+      "concepto": "4kg color vario",
+      "fecha": "2024-12-02",
+      "precio": 47.64,
+      "pagado_por": "J",
+      "enlace": "https://drive.google.com/file/d/1uHdoIPrHsEuzRoo0uxmyfJnLrpWr8Mbi/view?usp=drive_link"
+    },
+    {
+      "concepto": "100 imanes",
+      "fecha": "2025-05-07",
+      "precio": 11.99,
+      "pagado_por": "J",
+      "enlace": "https://drive.google.com/file/d/1mf5xbBvB_8xj_EAzTmZp3mTB96BbWcMh/view?usp=drive_link"
+    },
+    {
+      "concepto": "100 imanes",
+      "fecha": "2025-04-30",
+      "precio": 11.99,
+      "pagado_por": "J",
+      "enlace": "https://drive.google.com/file/d/1yIDe0wZRS8L_Bm7A9R6nE-8sWyQzGZXy/view?usp=drive_link"
+    },
+    {
+      "concepto": "120 llaveros",
+      "fecha": "2025-06-11",
+      "precio": 7.69,
+      "pagado_por": "J",
+      "enlace": "https://drive.google.com/file/d/1OP8bNxELVLeDEHLNvvjTeAevthEnZMzY/view?usp=drive_link"
+    },
+    {
+      "concepto": "120 llaveros",
+      "fecha": "2025-07-01",
+      "precio": 7.69,
+      "pagado_por": "J",
+      "enlace": "https://drive.google.com/file/d/1raxeL_fAPA4Lze7kj_hc3yllae8ONXjg/view?usp=drive_link"
+    },
+    {
+      "concepto": "120 llaveros",
+      "fecha": "2025-07-12",
+      "precio": 7.69,
+      "pagado_por": "J",
+      "enlace": "https://drive.google.com/file/d/11agwqI7eHdLbQ2_40dkFFirwR20y_KC7/view?usp=drive_link"
+    }
+  ],
+  "gastos_maquinaria": [
+    {
+      "concepto": "Boquilla bambulab 0,6",
+      "fecha": "2025-06-05",
+      "precio": 16.85,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1bmPpZr2Yh_BaSWB_52Qg5E_cV6t0mhWX/view?usp=sharing"
+    },
+    {
+      "concepto": "Recambios reparación bambulab",
+      "fecha": "2025-06-12",
+      "precio": 59.52,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1_NyCOfEExtsF5GtMqCu7EhI48fAfcv1v/view?usp=drive_link"
+    },
+    {
+      "concepto": "Recambios reparación bambulab",
+      "fecha": "2025-06-06",
+      "precio": 40.47,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1l3jpmcv8TRKFivu3OkE-MSQNVyKpcJMv/view?usp=drive_link"
+    },
+    {
+      "concepto": "Boquilla bambulab 0,4",
+      "fecha": "16.85",
+      "precio": 16.85,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1bmPpZr2Yh_BaSWB_52Qg5E_cV6t0mhWX/view?usp=sharing"
+    },
+    {
+      "concepto": "Ender 3 (Javi)",
+      "fecha": "2020-12-01",
+      "precio": 165.0,
+      "pagado_por": "J",
+      "enlace": "??"
+    },
+    {
+      "concepto": "Ender 3 (Pablo)",
+      "fecha": "2020-02-20",
+      "precio": 150.0,
+      "pagado_por": "P",
+      "enlace": ""
+    },
+    {
+      "concepto": "Bambu lab (Pablo)",
+      "fecha": "2024-07-09",
+      "precio": 522.39,
+      "pagado_por": "P",
+      "enlace": "https://drive.google.com/file/d/1GxZWbm-2b9TZs2GIBDoqwa38u62sanDs/view?usp=drive_link"
+    },
+    {
+      "concepto": "CR-Laser Falcon (Javi)",
+      "fecha": "2023-11-27",
+      "precio": 349.04,
+      "pagado_por": "J",
+      "enlace": "https://drive.google.com/file/d/1XWBICwa8Sq9NhH0dhAMjopLZ4tZsUHXi/view?usp=drive_link"
+    },
+    {
+      "concepto": "Carcasa Falcon (Javi)",
+      "fecha": "2023-12-07",
+      "precio": 79.98,
+      "pagado_por": "J",
+      "enlace": "https://drive.google.com/file/d/1tZqv8hvjg2g6GkXrBL98e1_KYRVuOoyV/view?usp=drive_link"
+    },
+    {
+      "concepto": "Compresor Falcon (Javi)",
+      "fecha": "2024-10-29",
+      "precio": 83.46,
+      "pagado_por": "J",
+      "enlace": "https://drive.google.com/file/d/1BW0tYwEBD_Hta-Y4ISkh7io2rLufsGzj/view?usp=drive_link"
+    },
+    {
+      "concepto": "Ordenador (Pablo)",
+      "fecha": "2024-12-20",
+      "precio": 625.0,
+      "pagado_por": "P",
+      "enlace": ""
+    },
+    {
+      "concepto": "Ordenador (Javi) memoria",
+      "fecha": "2022-07-29",
+      "precio": 39.66,
+      "pagado_por": "J",
+      "enlace": "https://drive.google.com/file/d/1unx02vU8TITklDP8zZZtb0sh-1JuBxk3/view?usp=drive_link"
+    },
+    {
+      "concepto": "Ordenador (Javi) disco duro",
+      "fecha": "2022-07-29",
+      "precio": 66.49,
+      "pagado_por": "J",
+      "enlace": "https://drive.google.com/file/d/15b49HMoSJ-lH3qNfG8j-jOcNJt-gJyRw/view?usp=drive_link"
+    },
+    {
+      "concepto": "Bambu lab (Javi)",
+      "fecha": "2026-02-14",
+      "precio": 380.2,
+      "pagado_por": "WP",
+      "enlace": ""
+    }
+  ],
+  "materiales_stock": [
+    {
+      "tipo": "PLA",
+      "color": "Negro",
+      "stock_total_g": 300.0,
+      "pablo_g": 0.0,
+      "javi_g": 300.0,
+      "pablo_rollos": [],
+      "javi_rollos": [
+        300.0
+      ]
+    },
+    {
+      "tipo": "PLA",
+      "color": "Gris oscuro",
+      "stock_total_g": 1000.0,
+      "pablo_g": 0.0,
+      "javi_g": 1000.0,
+      "pablo_rollos": [],
+      "javi_rollos": [
+        1000.0
+      ]
+    },
+    {
+      "tipo": "PLA",
+      "color": "Blanco",
+      "stock_total_g": 800.0,
+      "pablo_g": 0.0,
+      "javi_g": 800.0,
+      "pablo_rollos": [],
+      "javi_rollos": [
+        800.0
+      ]
+    },
+    {
+      "tipo": "PLA",
+      "color": "Verde pastel",
+      "stock_total_g": 800.0,
+      "pablo_g": 0.0,
+      "javi_g": 800.0,
+      "pablo_rollos": [],
+      "javi_rollos": [
+        800.0
+      ]
+    },
+    {
+      "tipo": "PLA",
+      "color": "Azul pastel",
+      "stock_total_g": 40.0,
+      "pablo_g": 0.0,
+      "javi_g": 40.0,
+      "pablo_rollos": [],
+      "javi_rollos": [
+        40.0
+      ]
+    },
+    {
+      "tipo": "PLA",
+      "color": "Naranja",
+      "stock_total_g": 800.0,
+      "pablo_g": 0.0,
+      "javi_g": 800.0,
+      "pablo_rollos": [],
+      "javi_rollos": [
+        800.0
+      ]
+    },
+    {
+      "tipo": "PLA",
+      "color": "Rojo burdeos",
+      "stock_total_g": 900.0,
+      "pablo_g": 0.0,
+      "javi_g": 900.0,
+      "pablo_rollos": [],
+      "javi_rollos": [
+        900.0
+      ]
+    },
+    {
+      "tipo": "PLA",
+      "color": "Oro viejo",
+      "stock_total_g": 100.0,
+      "pablo_g": 0.0,
+      "javi_g": 100.0,
+      "pablo_rollos": [],
+      "javi_rollos": [
+        100.0
+      ]
+    },
+    {
+      "tipo": "PLA",
+      "color": "Oro joven",
+      "stock_total_g": 900.0,
+      "pablo_g": 0.0,
+      "javi_g": 900.0,
+      "pablo_rollos": [],
+      "javi_rollos": [
+        900.0
+      ]
+    },
+    {
+      "tipo": "PLA",
+      "color": "Beig",
+      "stock_total_g": 900.0,
+      "pablo_g": 0.0,
+      "javi_g": 900.0,
+      "pablo_rollos": [],
+      "javi_rollos": [
+        900.0
+      ]
+    },
+    {
+      "tipo": "PLA",
+      "color": "Blanco frío",
+      "stock_total_g": 100.0,
+      "pablo_g": 0.0,
+      "javi_g": 100.0,
+      "pablo_rollos": [],
+      "javi_rollos": [
+        100.0
+      ]
+    },
+    {
+      "tipo": "PLA",
+      "color": "Gris claro",
+      "stock_total_g": 300.0,
+      "pablo_g": 0.0,
+      "javi_g": 300.0,
+      "pablo_rollos": [],
+      "javi_rollos": [
+        300.0
+      ]
+    },
+    {
+      "tipo": "PLA",
+      "color": "Amarillo",
+      "stock_total_g": 708.0,
+      "pablo_g": 0.0,
+      "javi_g": 708.0,
+      "pablo_rollos": [],
+      "javi_rollos": [
+        708.0
+      ]
+    },
+    {
+      "tipo": "PTGE",
+      "color": "Transparente",
+      "stock_total_g": 800.0,
+      "pablo_g": 0.0,
+      "javi_g": 800.0,
+      "pablo_rollos": [],
+      "javi_rollos": [
+        800.0
+      ]
+    }
+  ],
+  "fornituras": [
+    {
+      "nombre": "Anillas llaveros",
+      "cantidad": 159,
+      "unidades": "ud"
+    },
+    {
+      "nombre": "Imperdibles iniciativas",
+      "cantidad": 73,
+      "unidades": "ud"
+    },
+    {
+      "nombre": "Imanes",
+      "cantidad": 100,
+      "unidades": "ud"
+    },
+    {
+      "nombre": "Tableros madera 30x30",
+      "cantidad": 15,
+      "unidades": "ud"
+    }
+  ]
+}
