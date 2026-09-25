@@ -53,6 +53,7 @@ function switchTab(tabName) {
 // --- DATA LOADING ---
 async function loadAllData() {
     await Promise.all([
+        checkDbStatus(),
         loadBalance(),
         loadPedidos(),
         loadStock(),
@@ -1214,4 +1215,108 @@ function mostrarNotificacion(mensaje) {
         toast.classList.remove('opacity-100', 'translate-y-0');
         toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-4');
     }, 3500);
+}
+
+// --- ESTADO BASE DE DATOS (NEON / SQLITE) ---
+let dbStatusData = null;
+
+async function checkDbStatus() {
+    try {
+        const res = await fetch('/api/db-status');
+        dbStatusData = await res.json();
+        updateDbStatusUI();
+    } catch(e) {
+        console.error('Error comprobando estado de base de datos:', e);
+    }
+}
+
+function updateDbStatusUI() {
+    if (!dbStatusData) return;
+    const btn = document.getElementById('db-status-btn');
+    const dot = document.getElementById('db-status-dot');
+    const text = document.getElementById('db-status-text');
+    const banner = document.getElementById('db-warning-banner');
+
+    if (dbStatusData.es_permanente) {
+        if (dot) {
+            dot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50';
+        }
+        if (text) text.innerText = 'Nube Permanente (Neon)';
+        if (btn) btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors border bg-emerald-950/40 border-emerald-500/30 text-emerald-300 hover:bg-emerald-900/40';
+        if (banner) banner.classList.add('hidden');
+    } else {
+        if (dot) {
+            dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+        }
+        if (text) text.innerText = 'Modo Temporal (SQLite)';
+        if (btn) btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors border bg-amber-950/40 border-amber-500/40 text-amber-300 hover:bg-amber-900/40 animate-pulse';
+        if (banner) banner.classList.remove('hidden');
+    }
+}
+
+function abrirModalDbHelp() {
+    const modal = document.getElementById('modal-db-help');
+    if (!modal) return;
+    const details = document.getElementById('modal-db-details');
+    const pill = document.getElementById('modal-db-status-pill');
+
+    if (dbStatusData && dbStatusData.es_permanente) {
+        pill.className = 'text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+        pill.innerText = 'Conectado a Neon';
+        details.innerHTML = `
+            <div class="p-3 bg-emerald-950/30 border border-emerald-500/30 rounded-xl space-y-2">
+                <p class="font-bold text-emerald-400 flex items-center gap-1.5">
+                    <span>✅ Base de Datos Permanente Activa</span>
+                </p>
+                <p>Todos los pedidos, gastos, materiales y diseños de la calculadora se están guardando en la nube de Neon (PostgreSQL).</p>
+                <p class="text-slate-400 text-[11px]">Los datos nunca se borrarán, aunque el servidor de Render se apague por inactividad.</p>
+            </div>
+            <div class="text-[11px] text-slate-400 space-y-1">
+                <p><strong>Enlace detectado:</strong> <code class="bg-slate-900 px-1.5 py-0.5 rounded text-slate-300 font-mono">${dbStatusData.url_preview || 'Configurado'}</code></p>
+            </div>
+        `;
+    } else {
+        pill.className = 'text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30';
+        pill.innerText = 'Almacenamiento Temporal';
+        
+        let errorMsg = '';
+        if (dbStatusData && dbStatusData.error) {
+            errorMsg = `
+            <div class="p-3 bg-red-950/40 border border-red-500/30 rounded-xl text-red-300 space-y-1">
+                <p class="font-bold">⚠️ Error detectado al conectar a PostgreSQL:</p>
+                <code class="block font-mono text-[10px] break-all bg-black/40 p-2 rounded">${dbStatusData.error}</code>
+            </div>`;
+        } else if (dbStatusData && !dbStatusData.url_detectada) {
+            errorMsg = `
+            <div class="p-3 bg-amber-950/30 border border-amber-500/30 rounded-xl text-amber-200 space-y-1">
+                <p class="font-bold">⚠️ No se ha detectado la variable DATABASE_URL en Render.</p>
+                <p>El servidor está guardando en el disco temporal de Render, que se reinicia cuando pasan unas horas sin visitas.</p>
+            </div>`;
+        }
+
+        details.innerHTML = `
+            ${errorMsg}
+            <div class="space-y-3 pt-2">
+                <p class="font-bold text-white">Pasos para conectar la nube permanente en 1 minuto:</p>
+                <ol class="list-decimal pl-4 space-y-2 text-slate-300">
+                    <li>Entra en <strong>Neon.tech</strong> y copia la cadena de conexión (empieza por <code class="text-emerald-400 font-mono">postgresql://...</code>).</li>
+                    <li>Ve a tu servicio en <strong>Render.com</strong> &rarr; menú izquierdo <strong>Environment</strong>.</li>
+                    <li>Añade la variable:
+                        <ul class="list-disc pl-4 mt-1 space-y-0.5">
+                            <li><strong>Key:</strong> <code class="bg-slate-800 px-1 rounded text-white font-mono">DATABASE_URL</code></li>
+                            <li><strong>Value:</strong> <span class="text-slate-400">Pega el enlace de Neon (solo la URL, sin comillas ni 'psql')</span></li>
+                        </ul>
+                    </li>
+                    <li>Pulsa <strong>Save Changes</strong>. Render se reiniciará en 30 segundos y los datos nunca más se perderán.</li>
+                </ol>
+            </div>
+        `;
+    }
+
+    modal.classList.remove('hidden');
+}
+
+function cerrarModalDbHelp() {
+    const modal = document.getElementById('modal-db-help');
+    if (modal) modal.classList.add('hidden');
 }

@@ -4,21 +4,100 @@ import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-IS_POSTGRES = bool(DATABASE_URL and (DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://")))
-
-if IS_POSTGRES:
-    # Fix postgres:// prefix for SQLAlchemy / psycopg2 if needed
-    if DATABASE_URL.startswith("postgres://"):
-        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
-
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "w_and_p.db")
+
+POSTGRES_ERROR = None
+
+def get_cleaned_database_url() -> Optional[str]:
+    # Check common environment variable names
+    candidates = [
+        "DATABASE_URL", "POSTGRES_URL", "POSTGRESQL_URL",
+        "NEON_DATABASE_URL", "DATABASE_URI", "DB_URL"
+    ]
+    raw = None
+    for key in candidates:
+        v = os.environ.get(key)
+        if v and v.strip():
+            raw = v.strip()
+            break
+
+    if not raw:
+        # Search all environment variables for any postgresql/postgres connection string
+        for k, v in os.environ.items():
+            if isinstance(v, str) and ("postgres://" in v or "postgresql://" in v):
+                raw = v.strip()
+                break
+
+    if not raw:
+        return None
+
+    # Strip quotes, backticks, whitespace
+    raw = raw.strip("'\"` \t\r\n")
+
+    # Strip psql CLI prefix if copied from Neon/terminal
+    if raw.startswith("psql "):
+        raw = raw[5:].strip().strip("'\"` \t\r\n")
+    if raw.startswith("psql:"):
+        raw = raw[5:].strip().strip("'\"` \t\r\n")
+
+    # Strip env variable assignment if copied like DATABASE_URL=postgresql://...
+    if "=" in raw and not raw.startswith("postgres"):
+        parts = raw.split("=", 1)
+        if len(parts) > 1 and "postgres" in parts[1]:
+            raw = parts[1].strip().strip("'\"` \t\r\n")
+
+    # Fix postgres:// to postgresql://
+    if raw.startswith("postgres://"):
+        raw = raw.replace("postgres://", "postgresql://", 1)
+
+    return raw
+
+CLEAN_DATABASE_URL = get_cleaned_database_url()
+IS_POSTGRES = False
+
+if CLEAN_DATABASE_URL:
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        test_conn = psycopg2.connect(CLEAN_DATABASE_URL, connect_timeout=6)
+        test_conn.close()
+        IS_POSTGRES = True
+        print("[DATABASE] Conectado exitosamente a PostgreSQL en la nube (Neon/Permanente).")
+    except Exception as e:
+        POSTGRES_ERROR = str(e)
+        IS_POSTGRES = False
+        print(f"[DATABASE] ADVERTENCIA: Se detectó URL de PostgreSQL pero falló la conexión: {e}")
+        print("[DATABASE] Usando SQLite temporal de respaldo.")
+
+def get_database_status() -> Dict[str, Any]:
+    url_preview = None
+    if CLEAN_DATABASE_URL:
+        try:
+            parts = CLEAN_DATABASE_URL.split("@")
+            if len(parts) == 2:
+                host_part = parts[1]
+                proto_user = parts[0].split("://")
+                proto = proto_user[0]
+                user = proto_user[1].split(":")[0] if ":" in proto_user[1] else "usuario"
+                url_preview = f"{proto}://{user}:****@{host_part[:35]}..."
+            else:
+                url_preview = CLEAN_DATABASE_URL[:20] + "..."
+        except Exception:
+            url_preview = "postgresql://***"
+
+    return {
+        "tipo": "postgresql" if IS_POSTGRES else "sqlite",
+        "es_permanente": IS_POSTGRES,
+        "url_detectada": bool(CLEAN_DATABASE_URL),
+        "url_preview": url_preview,
+        "error": POSTGRES_ERROR
+    }
 
 def get_connection():
     if IS_POSTGRES:
-        return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        return psycopg2.connect(CLEAN_DATABASE_URL, cursor_factory=RealDictCursor)
     else:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row

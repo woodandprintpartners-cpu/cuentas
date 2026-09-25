@@ -29,7 +29,8 @@ from app.database import (
     get_balance_financiero,
     get_all_proyectos_calculadora,
     save_proyecto_calculadora,
-    delete_proyecto_calculadora
+    delete_proyecto_calculadora,
+    get_database_status
 )
 
 app = FastAPI(title="W&P - 3D Printing & Workshop Manager", version="1.0.0")
@@ -46,6 +47,10 @@ def on_startup():
 @app.get("/")
 def home(request: Request):
     return templates.TemplateResponse(request=request, name="index.html")
+
+@app.get("/api/db-status")
+def api_get_db_status():
+    return get_database_status()
 
 # --- API CALCULADORA ---
 @app.post("/api/calcular", response_model=CalculoResultado)
