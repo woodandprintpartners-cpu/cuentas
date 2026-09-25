@@ -53,6 +53,7 @@ function switchTab(tabName) {
 // --- DATA LOADING ---
 async function loadAllData() {
     await Promise.all([
+        checkDbStatus(),
         loadBalance(),
         loadPedidos(),
         loadStock(),
@@ -141,6 +142,200 @@ function updateBalanceUI() {
 }
 
 // --- CALCULADORA ---
+let proyectosCalculadoraData = [];
+
+function getCalculadoraFormData() {
+    const calcInputs = [
+        'calc-titulo', 'calc-piezas-totales', 'calc-precio-kg', 'calc-g-tirada',
+        'calc-piezas-tirada', 'calc-perdidas-3d', 'calc-coste-cambio-3d',
+        'calc-tiempo-diseno-3d', 'calc-precio-hora-diseno', 'calc-colores',
+        'calc-min-tirada-3d', 'calc-incluir-laser', 'calc-precio-m2-madera',
+        'calc-largo-tablero', 'calc-ancho-tablero', 'calc-piezas-tablero',
+        'calc-perdidas-laser', 'calc-tiempo-diseno-laser', 'calc-incluir-montaje',
+        'calc-pegar-ud', 'calc-llaveros-ud', 'calc-fornituras-ud', 'calc-cola-fijo',
+        'calc-descuento-pct', 'calc-aplicar-iva'
+    ];
+    const data = {};
+    calcInputs.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            data[id] = (el.type === 'checkbox') ? el.checked : el.value;
+        }
+    });
+    return data;
+}
+
+function setCalculadoraFormData(data) {
+    if (!data) return;
+    Object.keys(data).forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            if (el.type === 'checkbox') {
+                el.checked = Boolean(data[id]);
+            } else {
+                el.value = data[id];
+            }
+        }
+    });
+    // Toggle accordions
+    const laserCheck = document.getElementById('calc-incluir-laser');
+    const laserBox = document.getElementById('laser-params-box');
+    if (laserCheck && laserBox) laserBox.classList.toggle('hidden', !laserCheck.checked);
+
+    const montajeCheck = document.getElementById('calc-incluir-montaje');
+    const montajeBox = document.getElementById('montaje-params-box');
+    if (montajeCheck && montajeBox) montajeBox.classList.toggle('hidden', !montajeCheck.checked);
+}
+
+function guardarDraftCalculadora() {
+    try {
+        const data = getCalculadoraFormData();
+        localStorage.setItem('wp_calc_draft', JSON.stringify(data));
+    } catch (e) {}
+}
+
+function restaurarDraftCalculadora() {
+    try {
+        const raw = localStorage.getItem('wp_calc_draft');
+        if (raw) {
+            const data = JSON.parse(raw);
+            setCalculadoraFormData(data);
+        }
+    } catch (e) {}
+}
+
+async function loadProyectosCalculadora() {
+    try {
+        const res = await fetch('/api/calculadora/proyectos');
+        if (res.ok) {
+            proyectosCalculadoraData = await res.json();
+            try { localStorage.setItem('wp_saved_projects', JSON.stringify(proyectosCalculadoraData)); } catch(e){}
+        } else {
+            throw new Error('Server returned ' + res.status);
+        }
+    } catch (e) {
+        console.warn('Cargando proyectos desde localStorage fallback:', e);
+        try {
+            const cached = localStorage.getItem('wp_saved_projects');
+            if (cached) proyectosCalculadoraData = JSON.parse(cached);
+        } catch(err){}
+    }
+    actualizarSelectProyectosCalculadora();
+}
+
+function actualizarSelectProyectosCalculadora() {
+    const select = document.getElementById('calc-proyectos-guardados-select');
+    if (!select) return;
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">-- Cargar diseño guardado --</option>';
+    proyectosCalculadoraData.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = `${p.nombre} (${p.fecha || ''})`;
+        select.appendChild(opt);
+    });
+    if (currentVal && proyectosCalculadoraData.some(p => String(p.id) === String(currentVal))) {
+        select.value = currentVal;
+    }
+    const btnBorrar = document.getElementById('btn-borrar-diseno-calc');
+    if (btnBorrar) {
+        btnBorrar.classList.toggle('hidden', !select.value);
+    }
+}
+
+async function guardarDisenoCalculadora() {
+    const tituloActual = document.getElementById('calc-titulo').value || 'Mi Diseño';
+    const nombre = prompt('Introduce un nombre para guardar este diseño:', tituloActual);
+    if (!nombre || !nombre.trim()) return;
+
+    const datos = getCalculadoraFormData();
+    datos['calc-titulo'] = nombre.trim();
+    document.getElementById('calc-titulo').value = nombre.trim();
+
+    const payload = {
+        nombre: nombre.trim(),
+        datos: datos,
+        resultado: lastCalculoResultado || {}
+    };
+
+    try {
+        const res = await fetch('/api/calculadora/proyectos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+            const saved = await res.json();
+            mostrarNotificacion(`Diseño "${nombre}" guardado con éxito.`);
+            await loadProyectosCalculadora();
+            const select = document.getElementById('calc-proyectos-guardados-select');
+            if (select) select.value = saved.id;
+            const btnBorrar = document.getElementById('btn-borrar-diseno-calc');
+            if (btnBorrar) btnBorrar.classList.remove('hidden');
+        } else {
+            const err = await res.json().catch(() => ({}));
+            alert('Error al guardar diseño en servidor: ' + (err.detail || res.statusText));
+        }
+    } catch (e) {
+        // Fallback local
+        const localId = 'loc_' + Date.now();
+        const localItem = {
+            id: localId,
+            nombre: nombre.trim(),
+            fecha: new Date().toISOString().split('T')[0],
+            datos: datos,
+            resultado: lastCalculoResultado || {}
+        };
+        proyectosCalculadoraData.unshift(localItem);
+        try { localStorage.setItem('wp_saved_projects', JSON.stringify(proyectosCalculadoraData)); } catch(err){}
+        actualizarSelectProyectosCalculadora();
+        const select = document.getElementById('calc-proyectos-guardados-select');
+        if (select) select.value = localId;
+        mostrarNotificacion(`Diseño "${nombre}" guardado localmente.`);
+    }
+}
+
+function cargarDisenoSeleccionado(pid) {
+    const btnBorrar = document.getElementById('btn-borrar-diseno-calc');
+    if (!pid) {
+        if (btnBorrar) btnBorrar.classList.add('hidden');
+        return;
+    }
+    const proj = proyectosCalculadoraData.find(p => String(p.id) === String(pid));
+    if (!proj) return;
+
+    if (btnBorrar) btnBorrar.classList.remove('hidden');
+    setCalculadoraFormData(proj.datos);
+    guardarDraftCalculadora();
+    ejecutarCalculo();
+    mostrarNotificacion(`Diseño "${proj.nombre}" cargado.`);
+}
+
+async function borrarDisenoCalculadora() {
+    const select = document.getElementById('calc-proyectos-guardados-select');
+    const pid = select.value;
+    if (!pid) return;
+
+    const proj = proyectosCalculadoraData.find(p => String(p.id) === String(pid));
+    const nombre = proj ? proj.nombre : 'este diseño';
+
+    if (!confirm(`¿Eliminar el diseño guardado "${nombre}"?`)) return;
+
+    try {
+        await fetch(`/api/calculadora/proyectos/${pid}`, { method: 'DELETE' });
+    } catch (e) {
+        console.warn('Error eliminando en servidor:', e);
+    }
+
+    proyectosCalculadoraData = proyectosCalculadoraData.filter(p => String(p.id) !== String(pid));
+    try { localStorage.setItem('wp_saved_projects', JSON.stringify(proyectosCalculadoraData)); } catch(err){}
+    actualizarSelectProyectosCalculadora();
+    select.value = '';
+    const btnBorrar = document.getElementById('btn-borrar-diseno-calc');
+    if (btnBorrar) btnBorrar.classList.add('hidden');
+    mostrarNotificacion(`Diseño eliminado.`);
+}
+
 function initCalculator() {
     const calcInputs = [
         'calc-titulo', 'calc-piezas-totales', 'calc-precio-kg', 'calc-g-tirada',
@@ -156,8 +351,14 @@ function initCalculator() {
     calcInputs.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
-            el.addEventListener('input', ejecutarCalculo);
-            el.addEventListener('change', ejecutarCalculo);
+            el.addEventListener('input', () => {
+                guardarDraftCalculadora();
+                ejecutarCalculo();
+            });
+            el.addEventListener('change', () => {
+                guardarDraftCalculadora();
+                ejecutarCalculo();
+            });
         }
     });
 
@@ -178,6 +379,20 @@ function initCalculator() {
     document.getElementById('calc-preset-select').addEventListener('change', (e) => {
         aplicarPreset(e.target.value);
     });
+
+    // Mis Diseños selector
+    const disenoSelect = document.getElementById('calc-proyectos-guardados-select');
+    if (disenoSelect) {
+        disenoSelect.addEventListener('change', (e) => {
+            cargarDisenoSeleccionado(e.target.value);
+        });
+    }
+
+    // Load saved projects list
+    loadProyectosCalculadora();
+
+    // Restore draft if any exists
+    restaurarDraftCalculadora();
 
     // Run first calculation
     ejecutarCalculo();
@@ -344,7 +559,7 @@ function crearPedidoDesdeCalculo() {
     document.getElementById('modal-pedido-title').innerText = 'Guardar Presupuesto como Pedido';
     document.getElementById('form-pedido-id').value = '';
     document.getElementById('form-pedido-titulo').value = titulo;
-    document.getElementById('form-pedido-cliente').value = '';
+    document.getElementById('form-pedido-cliente').value = 'Particular';
     document.getElementById('form-pedido-fecha').value = new Date().toISOString().split('T')[0];
     document.getElementById('form-pedido-unidades').value = piezas;
     document.getElementById('form-pedido-precio-ud').value = precioUd.toFixed(2);
@@ -544,12 +759,14 @@ async function guardarPedido(e) {
     const uds = parseFloat(document.getElementById('form-pedido-unidades').value) || 1;
     const precioUd = parseFloat(document.getElementById('form-pedido-precio-ud').value) || 0;
     const precioTotal = parseFloat(document.getElementById('form-pedido-precio-total').value) || (uds * precioUd);
+    const cliente = (document.getElementById('form-pedido-cliente').value || '').trim() || 'Particular';
+    const fecha = document.getElementById('form-pedido-fecha').value || new Date().toISOString().split('T')[0];
 
     const payload = {
         id: pid,
-        titulo: document.getElementById('form-pedido-titulo').value,
-        cliente: document.getElementById('form-pedido-cliente').value,
-        fecha: document.getElementById('form-pedido-fecha').value,
+        titulo: (document.getElementById('form-pedido-titulo').value || '').trim() || 'Nuevo Pedido',
+        cliente: cliente,
+        fecha: fecha,
         unidades: uds,
         precio_unidad: precioUd,
         precio_total: precioTotal,
@@ -560,21 +777,32 @@ async function guardarPedido(e) {
     };
 
     try {
+        let res;
         if (pid) {
             // Update
-            await fetch(`/api/pedidos/${pid}`, {
+            res = await fetch(`/api/pedidos/${pid}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                alert('Error al actualizar pedido: ' + (err.detail || res.statusText));
+                return;
+            }
             mostrarNotificacion(`Pedido #${pid} guardado con éxito.`);
         } else {
             // Create
-            const res = await fetch('/api/pedidos', {
+            res = await fetch('/api/pedidos', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                alert('Error al crear pedido: ' + (err.detail || res.statusText));
+                return;
+            }
             const created = await res.json();
             mostrarNotificacion(`Nuevo pedido #${created.id} creado con éxito.`);
         }
@@ -585,6 +813,7 @@ async function guardarPedido(e) {
         switchTab('pedidos');
     } catch (err) {
         console.error('Error guardando pedido:', err);
+        alert('Error de conexión al guardar el pedido. Comprueba la conexión o el servidor.');
     }
 }
 
@@ -986,4 +1215,108 @@ function mostrarNotificacion(mensaje) {
         toast.classList.remove('opacity-100', 'translate-y-0');
         toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-4');
     }, 3500);
+}
+
+// --- ESTADO BASE DE DATOS (NEON / SQLITE) ---
+let dbStatusData = null;
+
+async function checkDbStatus() {
+    try {
+        const res = await fetch('/api/db-status');
+        dbStatusData = await res.json();
+        updateDbStatusUI();
+    } catch(e) {
+        console.error('Error comprobando estado de base de datos:', e);
+    }
+}
+
+function updateDbStatusUI() {
+    if (!dbStatusData) return;
+    const btn = document.getElementById('db-status-btn');
+    const dot = document.getElementById('db-status-dot');
+    const text = document.getElementById('db-status-text');
+    const banner = document.getElementById('db-warning-banner');
+
+    if (dbStatusData.es_permanente) {
+        if (dot) {
+            dot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50';
+        }
+        if (text) text.innerText = 'Nube Permanente (Neon)';
+        if (btn) btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors border bg-emerald-950/40 border-emerald-500/30 text-emerald-300 hover:bg-emerald-900/40';
+        if (banner) banner.classList.add('hidden');
+    } else {
+        if (dot) {
+            dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+        }
+        if (text) text.innerText = 'Modo Temporal (SQLite)';
+        if (btn) btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors border bg-amber-950/40 border-amber-500/40 text-amber-300 hover:bg-amber-900/40 animate-pulse';
+        if (banner) banner.classList.remove('hidden');
+    }
+}
+
+function abrirModalDbHelp() {
+    const modal = document.getElementById('modal-db-help');
+    if (!modal) return;
+    const details = document.getElementById('modal-db-details');
+    const pill = document.getElementById('modal-db-status-pill');
+
+    if (dbStatusData && dbStatusData.es_permanente) {
+        pill.className = 'text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+        pill.innerText = 'Conectado a Neon';
+        details.innerHTML = `
+            <div class="p-3 bg-emerald-950/30 border border-emerald-500/30 rounded-xl space-y-2">
+                <p class="font-bold text-emerald-400 flex items-center gap-1.5">
+                    <span>✅ Base de Datos Permanente Activa</span>
+                </p>
+                <p>Todos los pedidos, gastos, materiales y diseños de la calculadora se están guardando en la nube de Neon (PostgreSQL).</p>
+                <p class="text-slate-400 text-[11px]">Los datos nunca se borrarán, aunque el servidor de Render se apague por inactividad.</p>
+            </div>
+            <div class="text-[11px] text-slate-400 space-y-1">
+                <p><strong>Enlace detectado:</strong> <code class="bg-slate-900 px-1.5 py-0.5 rounded text-slate-300 font-mono">${dbStatusData.url_preview || 'Configurado'}</code></p>
+            </div>
+        `;
+    } else {
+        pill.className = 'text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30';
+        pill.innerText = 'Almacenamiento Temporal';
+        
+        let errorMsg = '';
+        if (dbStatusData && dbStatusData.error) {
+            errorMsg = `
+            <div class="p-3 bg-red-950/40 border border-red-500/30 rounded-xl text-red-300 space-y-1">
+                <p class="font-bold">⚠️ Error detectado al conectar a PostgreSQL:</p>
+                <code class="block font-mono text-[10px] break-all bg-black/40 p-2 rounded">${dbStatusData.error}</code>
+            </div>`;
+        } else if (dbStatusData && !dbStatusData.url_detectada) {
+            errorMsg = `
+            <div class="p-3 bg-amber-950/30 border border-amber-500/30 rounded-xl text-amber-200 space-y-1">
+                <p class="font-bold">⚠️ No se ha detectado la variable DATABASE_URL en Render.</p>
+                <p>El servidor está guardando en el disco temporal de Render, que se reinicia cuando pasan unas horas sin visitas.</p>
+            </div>`;
+        }
+
+        details.innerHTML = `
+            ${errorMsg}
+            <div class="space-y-3 pt-2">
+                <p class="font-bold text-white">Pasos para conectar la nube permanente en 1 minuto:</p>
+                <ol class="list-decimal pl-4 space-y-2 text-slate-300">
+                    <li>Entra en <strong>Neon.tech</strong> y copia la cadena de conexión (empieza por <code class="text-emerald-400 font-mono">postgresql://...</code>).</li>
+                    <li>Ve a tu servicio en <strong>Render.com</strong> &rarr; menú izquierdo <strong>Environment</strong>.</li>
+                    <li>Añade la variable:
+                        <ul class="list-disc pl-4 mt-1 space-y-0.5">
+                            <li><strong>Key:</strong> <code class="bg-slate-800 px-1 rounded text-white font-mono">DATABASE_URL</code></li>
+                            <li><strong>Value:</strong> <span class="text-slate-400">Pega el enlace de Neon (solo la URL, sin comillas ni 'psql')</span></li>
+                        </ul>
+                    </li>
+                    <li>Pulsa <strong>Save Changes</strong>. Render se reiniciará en 30 segundos y los datos nunca más se perderán.</li>
+                </ol>
+            </div>
+        `;
+    }
+
+    modal.classList.remove('hidden');
+}
+
+function cerrarModalDbHelp() {
+    const modal = document.getElementById('modal-db-help');
+    if (modal) modal.classList.add('hidden');
 }

@@ -4,21 +4,100 @@ import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-IS_POSTGRES = bool(DATABASE_URL and (DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://")))
-
-if IS_POSTGRES:
-    # Fix postgres:// prefix for SQLAlchemy / psycopg2 if needed
-    if DATABASE_URL.startswith("postgres://"):
-        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
-
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "w_and_p.db")
+
+POSTGRES_ERROR = None
+
+def get_cleaned_database_url() -> Optional[str]:
+    # Check common environment variable names
+    candidates = [
+        "DATABASE_URL", "POSTGRES_URL", "POSTGRESQL_URL",
+        "NEON_DATABASE_URL", "DATABASE_URI", "DB_URL"
+    ]
+    raw = None
+    for key in candidates:
+        v = os.environ.get(key)
+        if v and v.strip():
+            raw = v.strip()
+            break
+
+    if not raw:
+        # Search all environment variables for any postgresql/postgres connection string
+        for k, v in os.environ.items():
+            if isinstance(v, str) and ("postgres://" in v or "postgresql://" in v):
+                raw = v.strip()
+                break
+
+    if not raw:
+        return None
+
+    # Strip quotes, backticks, whitespace
+    raw = raw.strip("'\"` \t\r\n")
+
+    # Strip psql CLI prefix if copied from Neon/terminal
+    if raw.startswith("psql "):
+        raw = raw[5:].strip().strip("'\"` \t\r\n")
+    if raw.startswith("psql:"):
+        raw = raw[5:].strip().strip("'\"` \t\r\n")
+
+    # Strip env variable assignment if copied like DATABASE_URL=postgresql://...
+    if "=" in raw and not raw.startswith("postgres"):
+        parts = raw.split("=", 1)
+        if len(parts) > 1 and "postgres" in parts[1]:
+            raw = parts[1].strip().strip("'\"` \t\r\n")
+
+    # Fix postgres:// to postgresql://
+    if raw.startswith("postgres://"):
+        raw = raw.replace("postgres://", "postgresql://", 1)
+
+    return raw
+
+CLEAN_DATABASE_URL = get_cleaned_database_url()
+IS_POSTGRES = False
+
+if CLEAN_DATABASE_URL:
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        test_conn = psycopg2.connect(CLEAN_DATABASE_URL, connect_timeout=6)
+        test_conn.close()
+        IS_POSTGRES = True
+        print("[DATABASE] Conectado exitosamente a PostgreSQL en la nube (Neon/Permanente).")
+    except Exception as e:
+        POSTGRES_ERROR = str(e)
+        IS_POSTGRES = False
+        print(f"[DATABASE] ADVERTENCIA: Se detectó URL de PostgreSQL pero falló la conexión: {e}")
+        print("[DATABASE] Usando SQLite temporal de respaldo.")
+
+def get_database_status() -> Dict[str, Any]:
+    url_preview = None
+    if CLEAN_DATABASE_URL:
+        try:
+            parts = CLEAN_DATABASE_URL.split("@")
+            if len(parts) == 2:
+                host_part = parts[1]
+                proto_user = parts[0].split("://")
+                proto = proto_user[0]
+                user = proto_user[1].split(":")[0] if ":" in proto_user[1] else "usuario"
+                url_preview = f"{proto}://{user}:****@{host_part[:35]}..."
+            else:
+                url_preview = CLEAN_DATABASE_URL[:20] + "..."
+        except Exception:
+            url_preview = "postgresql://***"
+
+    return {
+        "tipo": "postgresql" if IS_POSTGRES else "sqlite",
+        "es_permanente": IS_POSTGRES,
+        "url_detectada": bool(CLEAN_DATABASE_URL),
+        "url_preview": url_preview,
+        "error": POSTGRES_ERROR
+    }
 
 def get_connection():
     if IS_POSTGRES:
-        return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        return psycopg2.connect(CLEAN_DATABASE_URL, cursor_factory=RealDictCursor)
     else:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
@@ -137,6 +216,18 @@ def init_db():
         )
         """))
         
+        # 6. Proyectos Guardados de la Calculadora
+        c.execute(adapt_sql("""
+        CREATE TABLE IF NOT EXISTS proyectos_calculadora (
+            id TEXT PRIMARY KEY,
+            nombre TEXT NOT NULL,
+            fecha TEXT,
+            datos_json TEXT NOT NULL,
+            resultado_json TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """))
+        
         conn.commit()
     finally:
         conn.close()
@@ -219,9 +310,9 @@ def create_pedido(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     params = (
         pid,
-        data.get("titulo", "Nuevo Pedido"),
-        data.get("cliente", "Cliente"),
-        data.get("fecha", datetime.today().strftime("%Y-%m-%d")),
+        str(data.get("titulo", "")).strip() or "Nuevo Pedido",
+        str(data.get("cliente", "")).strip() or "Particular",
+        str(data.get("fecha", "")).strip() or datetime.today().strftime("%Y-%m-%d"),
         float(data.get("unidades", 1)),
         float(data.get("precio_unidad", 0)),
         precio_total,
@@ -551,3 +642,37 @@ def get_balance_financiero() -> Dict[str, Any]:
         },
         "pedidos_pendientes": pedidos_pendientes_lista
     }
+
+# --- PROYECTOS CALCULADORA GUARDADOS ---
+def get_all_proyectos_calculadora() -> List[Dict[str, Any]]:
+    rows = execute_query("SELECT * FROM proyectos_calculadora ORDER BY created_at DESC", fetchall=True) or []
+    res = []
+    for r in rows:
+        d = dict(r)
+        d["datos"] = json.loads(d.get("datos_json") or "{}")
+        d["resultado"] = json.loads(d.get("resultado_json") or "{}")
+        res.append(d)
+    return res
+
+def save_proyecto_calculadora(nombre: str, datos: dict, resultado: dict) -> Dict[str, Any]:
+    import uuid
+    pid = str(uuid.uuid4())[:8]
+    fecha = datetime.today().strftime("%Y-%m-%d")
+    sql = """
+    INSERT INTO proyectos_calculadora (id, nombre, fecha, datos_json, resultado_json)
+    VALUES (?, ?, ?, ?, ?)
+    """
+    params = (
+        pid,
+        nombre.strip() or "Proyecto sin nombre",
+        fecha,
+        json.dumps(datos),
+        json.dumps(resultado)
+    )
+    execute_query(sql, params, commit=True)
+    return {"id": pid, "nombre": nombre, "fecha": fecha, "datos": datos, "resultado": resultado}
+
+def delete_proyecto_calculadora(pid: str) -> bool:
+    execute_query("DELETE FROM proyectos_calculadora WHERE id = ?", (pid,), commit=True)
+    return True
+

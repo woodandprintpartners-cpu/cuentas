@@ -26,7 +26,11 @@ from app.database import (
     descontar_stock,
     get_all_fornituras,
     update_fornitura,
-    get_balance_financiero
+    get_balance_financiero,
+    get_all_proyectos_calculadora,
+    save_proyecto_calculadora,
+    delete_proyecto_calculadora,
+    get_database_status
 )
 
 app = FastAPI(title="W&P - 3D Printing & Workshop Manager", version="1.0.0")
@@ -44,6 +48,10 @@ def on_startup():
 def home(request: Request):
     return templates.TemplateResponse(request=request, name="index.html")
 
+@app.get("/api/db-status")
+def api_get_db_status():
+    return get_database_status()
+
 # --- API CALCULADORA ---
 @app.post("/api/calcular", response_model=CalculoResultado)
 def api_calcular(datos: CalculoEntrada):
@@ -51,6 +59,22 @@ def api_calcular(datos: CalculoEntrada):
         return calcular_presupuesto(datos)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/calculadora/proyectos")
+def api_get_proyectos_calc():
+    return get_all_proyectos_calculadora()
+
+@app.post("/api/calculadora/proyectos")
+def api_save_proyecto_calc(datos: dict):
+    nombre = datos.get("nombre", "Proyecto sin nombre")
+    params = datos.get("datos", {})
+    resultado = datos.get("resultado", {})
+    return save_proyecto_calculadora(nombre, params, resultado)
+
+@app.delete("/api/calculadora/proyectos/{pid}")
+def api_delete_proyecto_calc(pid: str):
+    delete_proyecto_calculadora(pid)
+    return {"status": "ok", "deleted": pid}
 
 # --- API PEDIDOS ---
 @app.get("/api/pedidos")
