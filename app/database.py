@@ -495,6 +495,46 @@ def descontar_stock(stock_id: int, gramos: float, socio: str) -> Optional[Dict[s
     execute_query(sql, (pablo_g, javi_g, total_g, stock_id), commit=True)
     return {"id": stock_id, "pablo_g": pablo_g, "javi_g": javi_g, "stock_total_g": total_g}
 
+def add_stock_item(data: Dict[str, Any]) -> Dict[str, Any]:
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        sql = adapt_sql("""
+        INSERT INTO materiales_stock (
+            tipo, color, color_hex, stock_total_g, pablo_g, javi_g,
+            pablo_rollos_json, javi_rollos_json, precio_kg_estimado, alerta_minimo_g
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """)
+        tipo = str(data.get("tipo", "PLA")).strip().upper() or "PLA"
+        color = str(data.get("color", "Nuevo Color")).strip() or "Nuevo Color"
+        color_hex = str(data.get("color_hex") or guess_hex_color(color)).strip()
+        pablo_g = float(data.get("pablo_g", 0.0))
+        javi_g = float(data.get("javi_g", 0.0))
+        stock_total_g = pablo_g + javi_g
+        precio_kg = float(data.get("precio_kg_estimado", 20.0))
+        alerta = float(data.get("alerta_minimo_g", 200.0))
+
+        params = (
+            tipo, color, color_hex, stock_total_g, pablo_g, javi_g,
+            "[]", "[]", precio_kg, alerta
+        )
+        cur.execute(sql, params)
+        conn.commit()
+        if IS_POSTGRES:
+            cur.execute("SELECT * FROM materiales_stock ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+        else:
+            sid = cur.lastrowid
+            cur.execute("SELECT * FROM materiales_stock WHERE id = ?", (sid,))
+            row = cur.fetchone()
+        return dict(row) if row else {}
+    finally:
+        conn.close()
+
+def delete_stock_item(stock_id: int) -> bool:
+    execute_query("DELETE FROM materiales_stock WHERE id = ?", (stock_id,), commit=True)
+    return True
+
 # --- FORNITURAS ---
 def get_all_fornituras() -> List[Dict[str, Any]]:
     return execute_query("SELECT * FROM fornituras ORDER BY id ASC", fetchall=True) or []

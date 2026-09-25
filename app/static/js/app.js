@@ -950,16 +950,39 @@ async function ajustarGramosRapido(id, delta, socio) {
     }
 }
 
+// Modal Nuevo Filamento
+function abrirModalNuevoFilamento() {
+    document.getElementById('modal-stock-title').innerText = '+ Añadir Nuevo Filamento / Color';
+    document.getElementById('form-stock-id').value = '';
+    document.getElementById('form-stock-tipo').value = 'PLA';
+    document.getElementById('form-stock-color').value = '';
+    document.getElementById('form-stock-hex').value = '#3b82f6';
+    document.getElementById('form-stock-pablo').value = '1000';
+    document.getElementById('form-stock-javi').value = '0';
+    document.getElementById('form-stock-precio').value = '20';
+    document.getElementById('form-stock-alerta').value = '200';
+    document.getElementById('btn-guardar-stock-text').innerText = 'Añadir al Stock';
+    const btnEliminar = document.getElementById('btn-eliminar-stock');
+    if (btnEliminar) btnEliminar.classList.add('hidden');
+    document.getElementById('modal-stock').classList.remove('hidden');
+}
+
 // Modal Editar Stock
 function abrirEditarStockModal(id) {
     const s = stockData.find(x => x.id === id);
     if (!s) return;
+    document.getElementById('modal-stock-title').innerText = `Ajustar Bobina: ${s.tipo} ${s.color}`;
     document.getElementById('form-stock-id').value = s.id;
-    document.getElementById('form-stock-tipo').value = s.tipo;
-    document.getElementById('form-stock-color').value = s.color;
-    document.getElementById('form-stock-pablo').value = s.pablo_g;
-    document.getElementById('form-stock-javi').value = s.javi_g;
-    document.getElementById('form-stock-precio').value = s.precio_kg_estimado;
+    document.getElementById('form-stock-tipo').value = s.tipo || 'PLA';
+    document.getElementById('form-stock-color').value = s.color || '';
+    document.getElementById('form-stock-hex').value = s.color_hex || '#3b82f6';
+    document.getElementById('form-stock-pablo').value = s.pablo_g ?? 0;
+    document.getElementById('form-stock-javi').value = s.javi_g ?? 0;
+    document.getElementById('form-stock-precio').value = s.precio_kg_estimado ?? 20;
+    document.getElementById('form-stock-alerta').value = s.alerta_minimo_g ?? 200;
+    document.getElementById('btn-guardar-stock-text').innerText = 'Guardar Cambios';
+    const btnEliminar = document.getElementById('btn-eliminar-stock');
+    if (btnEliminar) btnEliminar.classList.remove('hidden');
     document.getElementById('modal-stock').classList.remove('hidden');
 }
 
@@ -969,27 +992,68 @@ function cerrarModalStock() {
 
 async function guardarStockModal(e) {
     e.preventDefault();
-    const sid = parseInt(document.getElementById('form-stock-id').value);
-    const s = stockData.find(x => x.id === sid);
-    if (!s) return;
-
-    s.tipo = document.getElementById('form-stock-tipo').value;
-    s.color = document.getElementById('form-stock-color').value;
-    s.pablo_g = parseFloat(document.getElementById('form-stock-pablo').value) || 0;
-    s.javi_g = parseFloat(document.getElementById('form-stock-javi').value) || 0;
-    s.precio_kg_estimado = parseFloat(document.getElementById('form-stock-precio').value) || 20;
+    const idVal = document.getElementById('form-stock-id').value;
+    const sid = idVal ? parseInt(idVal) : null;
+    
+    const payload = {
+        tipo: (document.getElementById('form-stock-tipo').value || 'PLA').trim().toUpperCase(),
+        color: (document.getElementById('form-stock-color').value || 'Sin color').trim(),
+        color_hex: document.getElementById('form-stock-hex').value || '#64748b',
+        pablo_g: parseFloat(document.getElementById('form-stock-pablo').value) || 0,
+        javi_g: parseFloat(document.getElementById('form-stock-javi').value) || 0,
+        precio_kg_estimado: parseFloat(document.getElementById('form-stock-precio').value) || 20,
+        alerta_minimo_g: parseFloat(document.getElementById('form-stock-alerta').value) || 200
+    };
 
     try {
-        await fetch(`/api/stock/${sid}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(s)
-        });
+        let res;
+        if (sid) {
+            // Edit existing
+            res = await fetch(`/api/stock/${sid}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error('Error al actualizar material');
+            mostrarNotificacion(`Filamento ${payload.color} actualizado.`);
+        } else {
+            // Create new
+            res = await fetch('/api/stock', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error('Error al añadir material');
+            mostrarNotificacion(`¡Nuevo filamento ${payload.color} (${payload.tipo}) añadido al inventario!`);
+        }
+
         cerrarModalStock();
         await loadStock();
-        mostrarNotificacion('Material actualizado correctamente.');
     } catch (err) {
         console.error('Error guardando stock:', err);
+        alert('Error al guardar el material. Comprueba los datos o la conexión.');
+    }
+}
+
+async function eliminarStockActualModal() {
+    const idVal = document.getElementById('form-stock-id').value;
+    if (!idVal) return;
+    const sid = parseInt(idVal);
+    const color = document.getElementById('form-stock-color').value || 'este material';
+
+    if (!confirm(`¿Estás seguro de que deseas eliminar permanentemente el filamento "${color}" del stock?`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/stock/${sid}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Error al eliminar');
+        cerrarModalStock();
+        await loadStock();
+        mostrarNotificacion(`Filamento "${color}" eliminado.`);
+    } catch (e) {
+        console.error('Error eliminando material:', e);
+        alert('Error al eliminar el material.');
     }
 }
 

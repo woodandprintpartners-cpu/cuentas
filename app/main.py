@@ -22,7 +22,9 @@ from app.database import (
     add_gasto_maquinaria,
     delete_gasto_maquinaria,
     get_all_stock,
+    add_stock_item,
     update_stock_item,
+    delete_stock_item,
     descontar_stock,
     get_all_fornituras,
     update_fornitura,
@@ -111,12 +113,23 @@ def api_delete_pedido(pedido_id: str):
 def api_get_stock():
     return get_all_stock()
 
+@app.post("/api/stock")
+def api_create_stock(datos: dict):
+    return add_stock_item(datos)
+
 @app.put("/api/stock/{stock_id}")
 def api_update_stock(stock_id: int, datos: dict):
     s = update_stock_item(stock_id, datos)
     if not s:
         raise HTTPException(status_code=404, detail="Material no encontrado")
     return s
+
+@app.delete("/api/stock/{stock_id}")
+def api_delete_stock(stock_id: int):
+    ok = delete_stock_item(stock_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Material no encontrado")
+    return {"status": "ok", "deleted": stock_id}
 
 @app.post("/api/stock/descontar")
 def api_descontar_stock(datos: dict):

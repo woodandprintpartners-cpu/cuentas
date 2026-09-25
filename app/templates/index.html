@@ -649,11 +649,15 @@
 
         <!-- ================= TAB 4: STOCK Y MATERIALES ================= -->
         <section id="tab-stock" class="tab-content space-y-6">
-            <div class="flex items-center justify-between">
+            <div class="flex flex-wrap items-center justify-between gap-4">
                 <div>
                     <h2 class="text-lg font-bold text-white">Inventario de Filamentos en Stock</h2>
-                    <p class="text-xs text-slate-400">Control de bobinas por color y socio (Pablo / Javi)</p>
+                    <p class="text-xs text-slate-400">Control de bobinas por tipo, color y socio (Pablo / Javi)</p>
                 </div>
+                <button onclick="abrirModalNuevoFilamento()" class="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-blue-600/30 transition-all">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                    + Añadir Filamento / Color
+                </button>
             </div>
 
             <!-- Filaments Grid -->
@@ -747,42 +751,63 @@
         </div>
     </div>
 
-    <!-- Modal Stock (Editar) -->
+    <!-- Modal Stock (Crear / Editar) -->
     <div id="modal-stock" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
         <div class="glass-card w-full max-w-md p-6 rounded-3xl border border-slate-700 shadow-2xl space-y-4">
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h3 class="font-bold text-base text-white">Ajustar Bobina de Material</h3>
+                <h3 id="modal-stock-title" class="font-bold text-base text-white">Ajustar Bobina de Material</h3>
                 <button onclick="cerrarModalStock()" class="text-slate-400 hover:text-white">&times;</button>
             </div>
             <form onsubmit="guardarStockModal(event)" class="space-y-4 text-xs">
                 <input type="hidden" id="form-stock-id">
-                <div class="grid grid-cols-2 gap-3">
+                <div class="grid grid-cols-3 gap-3">
                     <div>
                         <label class="block text-slate-400 mb-1">Tipo</label>
-                        <input type="text" id="form-stock-tipo" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                        <select id="form-stock-tipo" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                            <option value="PLA">PLA</option>
+                            <option value="PETG">PETG</option>
+                            <option value="ABS">ABS</option>
+                            <option value="TPU">TPU</option>
+                            <option value="RESINA">Resina</option>
+                            <option value="MADERA">Madera Láser</option>
+                        </select>
                     </div>
-                    <div>
-                        <label class="block text-slate-400 mb-1">Color</label>
-                        <input type="text" id="form-stock-color" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                    <div class="col-span-2">
+                        <label class="block text-slate-400 mb-1">Color / Tono</label>
+                        <div class="flex items-center gap-2">
+                            <input type="color" id="form-stock-hex" value="#3b82f6" class="w-8 h-8 rounded border border-slate-700 bg-transparent cursor-pointer p-0.5" title="Seleccionar color visual">
+                            <input type="text" id="form-stock-color" required placeholder="Ej: Verde Militar, Amarillo..." class="flex-1 bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                        </div>
                     </div>
                 </div>
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="block text-blue-400 mb-1 font-semibold">Gramos de Pablo (g)</label>
-                        <input type="number" id="form-stock-pablo" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                        <input type="number" id="form-stock-pablo" value="0" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
                     </div>
                     <div>
                         <label class="block text-emerald-400 mb-1 font-semibold">Gramos de Javi (g)</label>
-                        <input type="number" id="form-stock-javi" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                        <input type="number" id="form-stock-javi" value="0" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
                     </div>
                 </div>
-                <div>
-                    <label class="block text-slate-400 mb-1">Precio estimado (€/kg)</label>
-                    <input type="number" step="0.5" id="form-stock-precio" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-400 mb-1">Precio estimado (€/kg)</label>
+                        <input type="number" step="0.5" id="form-stock-precio" value="20" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-400 mb-1">Aviso mínimo (g)</label>
+                        <input type="number" id="form-stock-alerta" value="200" class="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white">
+                    </div>
                 </div>
-                <div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
-                    <button type="button" onclick="cerrarModalStock()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded">Cancelar</button>
-                    <button type="submit" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded">Guardar</button>
+                <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+                    <button type="button" id="btn-eliminar-stock" onclick="eliminarStockActualModal()" class="hidden px-3 py-1.5 bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-800 rounded font-semibold transition-colors">
+                        Eliminar
+                    </button>
+                    <div class="flex items-center gap-2 ml-auto">
+                        <button type="button" onclick="cerrarModalStock()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded">Cancelar</button>
+                        <button type="submit" id="btn-guardar-stock-text" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded">Guardar</button>
+                    </div>
                 </div>
             </form>
         </div>
@@ -866,6 +891,6 @@
     </div>
 
     <!-- App JS -->
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/app.js?v=2.0"></script>
 </body>
 </html>
