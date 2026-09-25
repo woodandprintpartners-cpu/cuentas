@@ -201,7 +201,8 @@ def init_db():
             pablo_rollos_json TEXT DEFAULT '[]',
             javi_rollos_json TEXT DEFAULT '[]',
             precio_kg_estimado REAL DEFAULT 20.0,
-            alerta_minimo_g REAL DEFAULT 200.0
+            alerta_minimo_g REAL DEFAULT 200.0,
+            ubicacion TEXT DEFAULT 'Taller'
         )
         """))
         
@@ -212,7 +213,8 @@ def init_db():
             nombre TEXT NOT NULL,
             cantidad REAL DEFAULT 0,
             unidades TEXT DEFAULT 'ud',
-            coste_unitario REAL DEFAULT 0.0
+            coste_unitario REAL DEFAULT 0.0,
+            ubicacion TEXT DEFAULT 'Taller'
         )
         """))
         
@@ -229,6 +231,27 @@ def init_db():
         """))
         
         conn.commit()
+
+        # Migraciones seguras para bases de datos existentes (Postgres y SQLite)
+        try:
+            if IS_POSTGRES:
+                c.execute("ALTER TABLE materiales_stock ADD COLUMN IF NOT EXISTS ubicacion TEXT DEFAULT 'Taller';")
+                c.execute("ALTER TABLE fornituras ADD COLUMN IF NOT EXISTS ubicacion TEXT DEFAULT 'Taller';")
+                conn.commit()
+            else:
+                c.execute("PRAGMA table_info(materiales_stock)")
+                cols_stock = [r[1] if isinstance(r, tuple) else r["name"] for r in c.fetchall()]
+                if "ubicacion" not in cols_stock:
+                    c.execute("ALTER TABLE materiales_stock ADD COLUMN ubicacion TEXT DEFAULT 'Taller'")
+                    conn.commit()
+                    
+                c.execute("PRAGMA table_info(fornituras)")
+                cols_forn = [r[1] if isinstance(r, tuple) else r["name"] for r in c.fetchall()]
+                if "ubicacion" not in cols_forn:
+                    c.execute("ALTER TABLE fornituras ADD COLUMN ubicacion TEXT DEFAULT 'Taller'")
+                    conn.commit()
+        except Exception as mig_err:
+            print(f"[DB MIGRATION NOTICE] {mig_err}")
     finally:
         conn.close()
 
@@ -444,6 +467,8 @@ def get_all_stock() -> List[Dict[str, Any]]:
         d = dict(r)
         d["pablo_rollos"] = json.loads(d.get("pablo_rollos_json") or "[]")
         d["javi_rollos"] = json.loads(d.get("javi_rollos_json") or "[]")
+        if not d.get("ubicacion"):
+            d["ubicacion"] = "Taller"
         res.append(d)
     return res
 
@@ -451,11 +476,13 @@ def update_stock_item(stock_id: int, data: Dict[str, Any]) -> Optional[Dict[str,
     pablo_g = float(data.get("pablo_g", 0.0))
     javi_g = float(data.get("javi_g", 0.0))
     stock_total_g = pablo_g + javi_g
+    ubicacion = str(data.get("ubicacion") or "Taller").strip()
     
     sql = """
     UPDATE materiales_stock SET
         tipo = ?, color = ?, color_hex = ?, stock_total_g = ?,
-        pablo_g = ?, javi_g = ?, precio_kg_estimado = ?, alerta_minimo_g = ?
+        pablo_g = ?, javi_g = ?, precio_kg_estimado = ?, alerta_minimo_g = ?,
+        ubicacion = ?
     WHERE id = ?
     """
     params = (
@@ -467,6 +494,7 @@ def update_stock_item(stock_id: int, data: Dict[str, Any]) -> Optional[Dict[str,
         javi_g,
         float(data.get("precio_kg_estimado", 20.0)),
         float(data.get("alerta_minimo_g", 200.0)),
+        ubicacion,
         stock_id
     )
     execute_query(sql, params, commit=True)
@@ -502,8 +530,8 @@ def add_stock_item(data: Dict[str, Any]) -> Dict[str, Any]:
         sql = adapt_sql("""
         INSERT INTO materiales_stock (
             tipo, color, color_hex, stock_total_g, pablo_g, javi_g,
-            pablo_rollos_json, javi_rollos_json, precio_kg_estimado, alerta_minimo_g
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            pablo_rollos_json, javi_rollos_json, precio_kg_estimado, alerta_minimo_g, ubicacion
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """)
         tipo = str(data.get("tipo", "PLA")).strip().upper() or "PLA"
         color = str(data.get("color", "Nuevo Color")).strip() or "Nuevo Color"
@@ -513,10 +541,11 @@ def add_stock_item(data: Dict[str, Any]) -> Dict[str, Any]:
         stock_total_g = pablo_g + javi_g
         precio_kg = float(data.get("precio_kg_estimado", 20.0))
         alerta = float(data.get("alerta_minimo_g", 200.0))
+        ubicacion = str(data.get("ubicacion") or "Taller").strip()
 
         params = (
             tipo, color, color_hex, stock_total_g, pablo_g, javi_g,
-            "[]", "[]", precio_kg, alerta
+            "[]", "[]", precio_kg, alerta, ubicacion
         )
         cur.execute(sql, params)
         conn.commit()
@@ -537,11 +566,69 @@ def delete_stock_item(stock_id: int) -> bool:
 
 # --- FORNITURAS ---
 def get_all_fornituras() -> List[Dict[str, Any]]:
-    return execute_query("SELECT * FROM fornituras ORDER BY id ASC", fetchall=True) or []
+    rows = execute_query("SELECT * FROM fornituras ORDER BY id ASC", fetchall=True) or []
+    res = []
+    for r in rows:
+        d = dict(r)
+        if not d.get("ubicacion"):
+            d["ubicacion"] = "Taller"
+        res.append(d)
+    return res
 
-def update_fornitura(fornitura_id: int, cantidad: float) -> Optional[Dict[str, Any]]:
-    execute_query("UPDATE fornituras SET cantidad = ? WHERE id = ?", (cantidad, fornitura_id), commit=True)
+def update_fornitura(fornitura_id: int, cantidad: Optional[float] = None, ubicacion: Optional[str] = None, nombre: Optional[str] = None, unidades: Optional[str] = None, coste_unitario: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    updates = []
+    params = []
+    if cantidad is not None:
+        updates.append("cantidad = ?")
+        params.append(float(cantidad))
+    if ubicacion is not None:
+        updates.append("ubicacion = ?")
+        params.append(ubicacion.strip() or "Taller")
+    if nombre is not None:
+        updates.append("nombre = ?")
+        params.append(nombre.strip())
+    if unidades is not None:
+        updates.append("unidades = ?")
+        params.append(unidades.strip())
+    if coste_unitario is not None:
+        updates.append("coste_unitario = ?")
+        params.append(float(coste_unitario))
+        
+    if updates:
+        params.append(fornitura_id)
+        execute_query(f"UPDATE fornituras SET {', '.join(updates)} WHERE id = ?", tuple(params), commit=True)
     return execute_query("SELECT * FROM fornituras WHERE id = ?", (fornitura_id,), fetchone=True)
+
+def add_fornitura(data: Dict[str, Any]) -> Dict[str, Any]:
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        sql = adapt_sql("""
+        INSERT INTO fornituras (nombre, cantidad, unidades, coste_unitario, ubicacion)
+        VALUES (?, ?, ?, ?, ?)
+        """)
+        nombre = str(data.get("nombre", "Nuevo Objeto")).strip() or "Nuevo Objeto"
+        cantidad = float(data.get("cantidad", 0.0))
+        unidades = str(data.get("unidades", "ud")).strip() or "ud"
+        coste_unitario = float(data.get("coste_unitario", 0.10))
+        ubicacion = str(data.get("ubicacion", "Taller")).strip() or "Taller"
+        
+        cur.execute(sql, (nombre, cantidad, unidades, coste_unitario, ubicacion))
+        conn.commit()
+        if IS_POSTGRES:
+            cur.execute("SELECT * FROM fornituras ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+        else:
+            fid = cur.lastrowid
+            cur.execute("SELECT * FROM fornituras WHERE id = ?", (fid,))
+            row = cur.fetchone()
+        return dict(row) if row else {}
+    finally:
+        conn.close()
+
+def delete_fornitura(fornitura_id: int) -> bool:
+    execute_query("DELETE FROM fornituras WHERE id = ?", (fornitura_id,), commit=True)
+    return True
 
 # --- BALANCE Y LIQUIDACIÓN ---
 def get_balance_financiero() -> Dict[str, Any]:

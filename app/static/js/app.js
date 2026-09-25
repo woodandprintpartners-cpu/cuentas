@@ -866,50 +866,95 @@ function renderStockCards() {
 
     stockData.forEach(s => {
         const isLow = s.stock_total_g < s.alerta_minimo_g;
+        const ubicacionActual = s.ubicacion || 'Taller';
         const card = document.createElement('div');
-        card.className = `glass-card p-4 rounded-xl border ${isLow ? 'border-red-500/50 bg-red-950/10' : 'border-slate-800'} relative`;
+        card.className = `glass-card p-4 rounded-xl border ${isLow ? 'border-red-500/50 bg-red-950/10' : 'border-slate-800'} relative flex flex-col justify-between`;
+
+        const getSelectColor = (u) => {
+            if (u === 'Pablo') return 'text-blue-400 border-blue-700/50 bg-blue-950/40';
+            if (u === 'Javi') return 'text-emerald-400 border-emerald-700/50 bg-emerald-950/40';
+            if (u === 'Ambos') return 'text-amber-400 border-amber-700/50 bg-amber-950/40';
+            return 'text-purple-300 border-purple-700/50 bg-purple-950/40';
+        };
 
         card.innerHTML = `
-            <div class="flex items-start justify-between mb-3">
-                <div class="flex items-center gap-2.5">
-                    <span class="w-5 h-5 rounded-full border border-white/20 shadow-sm flex-shrink-0" style="background-color: ${s.color_hex}"></span>
-                    <div>
-                        <h4 class="font-bold text-white text-base leading-tight">${s.color}</h4>
-                        <span class="text-xs text-slate-400 font-mono">${s.tipo}</span>
+            <div>
+                <div class="flex items-start justify-between mb-2.5">
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-5 h-5 rounded-full border border-white/20 shadow-sm flex-shrink-0" style="background-color: ${s.color_hex}"></span>
+                        <div>
+                            <h4 class="font-bold text-white text-base leading-tight">${s.color}</h4>
+                            <span class="text-xs text-slate-400 font-mono">${s.tipo}</span>
+                        </div>
+                    </div>
+                    ${isLow ? '<span class="px-2 py-0.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded text-xs font-bold animate-pulse">¡Stock Bajo!</span>' : ''}
+                </div>
+
+                <!-- Barra de disponibilidad -->
+                <div class="my-2.5">
+                    <div class="flex justify-between text-xs text-slate-400 mb-1">
+                        <span>Disponible Total</span>
+                        <span class="font-bold font-mono text-slate-200">${s.stock_total_g.toFixed(0)} g</span>
+                    </div>
+                    <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                        <div class="h-full ${isLow ? 'bg-red-500' : 'bg-blue-500'}" style="width: ${Math.min(100, (s.stock_total_g / 1000) * 100)}%"></div>
                     </div>
                 </div>
-                ${isLow ? '<span class="px-2 py-0.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded text-xs font-bold animate-pulse">¡Stock Bajo!</span>' : ''}
+
+                <!-- Apartado: ¿Quién lo tiene? (Custodia) -->
+                <div class="p-2 rounded-lg bg-slate-900/80 border border-slate-700/60 my-2.5 flex items-center justify-between text-xs">
+                    <span class="text-slate-300 font-medium flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        Lo tiene:
+                    </span>
+                    <select onchange="cambiarCustodiaStock(${s.id}, this.value)" class="text-xs font-bold rounded px-2 py-1 border focus:outline-none cursor-pointer transition-all ${getSelectColor(ubicacionActual)}">
+                        <option value="Pablo" ${ubicacionActual === 'Pablo' ? 'selected' : ''}>👤 Pablo</option>
+                        <option value="Javi" ${ubicacionActual === 'Javi' ? 'selected' : ''}>👤 Javi</option>
+                        <option value="Taller" ${ubicacionActual === 'Taller' ? 'selected' : ''}>🏢 Taller</option>
+                        <option value="Ambos" ${ubicacionActual === 'Ambos' ? 'selected' : ''}>🤝 Ambos</option>
+                    </select>
+                </div>
+
+                <!-- Reparto gramos Pablo / Javi -->
+                <div class="grid grid-cols-2 gap-2 text-xs pt-1">
+                    <div class="bg-blue-950/30 border border-blue-900/40 p-2 rounded">
+                        <span class="text-blue-400 font-semibold block">Pablo</span>
+                        <span class="text-white font-mono text-sm">${s.pablo_g.toFixed(0)} g</span>
+                    </div>
+                    <div class="bg-emerald-950/30 border border-emerald-900/40 p-2 rounded">
+                        <span class="text-emerald-400 font-semibold block">Javi</span>
+                        <span class="text-white font-mono text-sm">${s.javi_g.toFixed(0)} g</span>
+                    </div>
+                </div>
             </div>
 
-            <div class="my-3">
-                <div class="flex justify-between text-xs text-slate-400 mb-1">
-                    <span>Disponible Total</span>
-                    <span class="font-bold font-mono text-slate-200">${s.stock_total_g.toFixed(0)} g</span>
-                </div>
-                <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-                    <div class="h-full ${isLow ? 'bg-red-500' : 'bg-blue-500'}" style="width: ${Math.min(100, (s.stock_total_g / 1000) * 100)}%"></div>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-slate-800">
-                <div class="bg-blue-950/30 border border-blue-900/40 p-2 rounded">
-                    <span class="text-blue-400 font-semibold block">Pablo</span>
-                    <span class="text-white font-mono text-sm">${s.pablo_g.toFixed(0)} g</span>
-                </div>
-                <div class="bg-emerald-950/30 border border-emerald-900/40 p-2 rounded">
-                    <span class="text-emerald-400 font-semibold block">Javi</span>
-                    <span class="text-white font-mono text-sm">${s.javi_g.toFixed(0)} g</span>
-                </div>
-            </div>
-
+            <!-- Botones de Acción -->
             <div class="flex items-center justify-end gap-1 mt-3 pt-2 border-t border-slate-800/60">
                 <button onclick="ajustarGramosRapido(${s.id}, 100, 'P')" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-blue-300 rounded text-xs font-mono" title="Añadir 100g a Pablo">+100 P</button>
                 <button onclick="ajustarGramosRapido(${s.id}, 100, 'J')" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-emerald-300 rounded text-xs font-mono" title="Añadir 100g a Javi">+100 J</button>
-                <button onclick="abrirEditarStockModal(${s.id})" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs ml-1" title="Ajustar">Editar</button>
+                <button onclick="abrirEditarStockModal(${s.id})" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs ml-1" title="Ajustar">Editar</button>
             </div>
         `;
         container.appendChild(card);
     });
+}
+
+async function cambiarCustodiaStock(id, nuevaUbicacion) {
+    const mat = stockData.find(x => x.id === id);
+    if (!mat) return;
+    mat.ubicacion = nuevaUbicacion;
+
+    try {
+        await fetch(`/api/stock/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(mat)
+        });
+        await loadStock();
+        mostrarNotificacion(`📍 ${mat.color}: Ahora lo tiene ${nuevaUbicacion}`);
+    } catch (e) {
+        console.error('Error actualizando custodia de stock:', e);
+    }
 }
 
 function populateCalculatorMaterialDropdown() {
@@ -961,6 +1006,7 @@ function abrirModalNuevoFilamento() {
     document.getElementById('form-stock-javi').value = '0';
     document.getElementById('form-stock-precio').value = '20';
     document.getElementById('form-stock-alerta').value = '200';
+    document.getElementById('form-stock-ubicacion').value = 'Taller';
     document.getElementById('btn-guardar-stock-text').innerText = 'Añadir al Stock';
     const btnEliminar = document.getElementById('btn-eliminar-stock');
     if (btnEliminar) btnEliminar.classList.add('hidden');
@@ -980,6 +1026,7 @@ function abrirEditarStockModal(id) {
     document.getElementById('form-stock-javi').value = s.javi_g ?? 0;
     document.getElementById('form-stock-precio').value = s.precio_kg_estimado ?? 20;
     document.getElementById('form-stock-alerta').value = s.alerta_minimo_g ?? 200;
+    document.getElementById('form-stock-ubicacion').value = s.ubicacion || 'Taller';
     document.getElementById('btn-guardar-stock-text').innerText = 'Guardar Cambios';
     const btnEliminar = document.getElementById('btn-eliminar-stock');
     if (btnEliminar) btnEliminar.classList.remove('hidden');
@@ -1002,7 +1049,8 @@ async function guardarStockModal(e) {
         pablo_g: parseFloat(document.getElementById('form-stock-pablo').value) || 0,
         javi_g: parseFloat(document.getElementById('form-stock-javi').value) || 0,
         precio_kg_estimado: parseFloat(document.getElementById('form-stock-precio').value) || 20,
-        alerta_minimo_g: parseFloat(document.getElementById('form-stock-alerta').value) || 200
+        alerta_minimo_g: parseFloat(document.getElementById('form-stock-alerta').value) || 200,
+        ubicacion: (document.getElementById('form-stock-ubicacion').value || 'Taller').trim()
     };
 
     try {
@@ -1057,7 +1105,7 @@ async function eliminarStockActualModal() {
     }
 }
 
-// --- FORNITURAS ---
+// --- FORNITURAS Y OBJETOS ---
 async function loadFornituras() {
     try {
         const res = await fetch('/api/fornituras');
@@ -1072,22 +1120,167 @@ function renderFornituras() {
     const container = document.getElementById('fornituras-container');
     container.innerHTML = '';
 
+    const getUbiColor = (u) => {
+        if (u === 'Pablo') return 'text-blue-400 border-blue-700/50 bg-blue-950/40';
+        if (u === 'Javi') return 'text-emerald-400 border-emerald-700/50 bg-emerald-950/40';
+        if (u === 'Ambos') return 'text-amber-400 border-amber-700/50 bg-amber-950/40';
+        return 'text-purple-300 border-purple-700/50 bg-purple-950/40';
+    };
+
     forniturasData.forEach(f => {
+        const u = f.ubicacion || 'Taller';
         const div = document.createElement('div');
-        div.className = 'flex items-center justify-between p-3 bg-slate-800/60 border border-slate-700/60 rounded-xl';
+        div.className = 'glass-card p-4 rounded-xl border border-slate-700/60 flex flex-col justify-between space-y-3';
         div.innerHTML = `
             <div>
-                <h5 class="font-bold text-white">${f.nombre}</h5>
-                <span class="text-xs text-slate-400">Stock actual: <strong class="text-emerald-400 font-mono text-sm">${f.cantidad} ${f.unidades}</strong></span>
+                <div class="flex items-start justify-between">
+                    <div>
+                        <h5 class="font-bold text-white text-sm leading-tight">${f.nombre}</h5>
+                        <span class="text-xs text-slate-400">Stock: <strong class="text-emerald-400 font-mono text-base">${f.cantidad}</strong> ${f.unidades || 'ud'}</span>
+                    </div>
+                    <button onclick="abrirEditarFornituraModal(${f.id})" class="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition-colors" title="Editar objeto">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                    </button>
+                </div>
+
+                <!-- Apartado: ¿Quién lo tiene? -->
+                <div class="p-2 rounded-lg bg-slate-900/80 border border-slate-700/60 mt-2.5 flex items-center justify-between text-xs">
+                    <span class="text-slate-300 font-medium flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5 text-amber-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        Lo tiene:
+                    </span>
+                    <select onchange="cambiarCustodiaFornitura(${f.id}, this.value)" class="text-xs font-bold rounded px-2 py-1 border focus:outline-none cursor-pointer transition-all ${getUbiColor(u)}">
+                        <option value="Pablo" ${u === 'Pablo' ? 'selected' : ''}>👤 Pablo</option>
+                        <option value="Javi" ${u === 'Javi' ? 'selected' : ''}>👤 Javi</option>
+                        <option value="Taller" ${u === 'Taller' ? 'selected' : ''}>🏢 Taller</option>
+                        <option value="Ambos" ${u === 'Ambos' ? 'selected' : ''}>🤝 Ambos</option>
+                    </select>
+                </div>
             </div>
-            <div class="flex items-center gap-1">
-                <button onclick="ajustarFornitura(${f.id}, -10)" class="w-8 h-8 rounded bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm">-10</button>
-                <button onclick="ajustarFornitura(${f.id}, 10)" class="w-8 h-8 rounded bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm">+10</button>
-                <button onclick="ajustarFornitura(${f.id}, 50)" class="w-8 h-8 rounded bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm">+50</button>
+
+            <!-- Botones de incremento / decremento rápido -->
+            <div class="flex items-center justify-between gap-1 pt-2 border-t border-slate-800">
+                <span class="text-[11px] text-slate-500 font-mono">${(f.coste_unitario || 0).toFixed(2)}€/ud</span>
+                <div class="flex items-center gap-1">
+                    <button onclick="ajustarFornitura(${f.id}, -10)" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs" title="Restar 10">-10</button>
+                    <button onclick="ajustarFornitura(${f.id}, 10)" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs" title="Sumar 10">+10</button>
+                    <button onclick="ajustarFornitura(${f.id}, 50)" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs" title="Sumar 50">+50</button>
+                </div>
             </div>
         `;
         container.appendChild(div);
     });
+}
+
+async function cambiarCustodiaFornitura(id, nuevaUbicacion) {
+    const f = forniturasData.find(x => x.id === id);
+    if (!f) return;
+    try {
+        await fetch(`/api/fornituras/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ubicacion: nuevaUbicacion })
+        });
+        await loadFornituras();
+        mostrarNotificacion(`📍 ${f.nombre}: Ahora lo tiene ${nuevaUbicacion}`);
+    } catch (e) {
+        console.error('Error custodia fornitura:', e);
+    }
+}
+
+function abrirModalNuevaFornitura() {
+    document.getElementById('modal-fornitura-title').innerText = '+ Añadir Nuevo Objeto / Fornitura';
+    document.getElementById('form-fornitura-id').value = '';
+    document.getElementById('form-fornitura-nombre').value = '';
+    document.getElementById('form-fornitura-cantidad').value = '100';
+    document.getElementById('form-fornitura-unidades').value = 'ud';
+    document.getElementById('form-fornitura-coste').value = '0.10';
+    document.getElementById('form-fornitura-ubicacion').value = 'Taller';
+    document.getElementById('btn-guardar-fornitura-text').innerText = 'Añadir al Stock';
+    const btnEliminar = document.getElementById('btn-eliminar-fornitura');
+    if (btnEliminar) btnEliminar.classList.add('hidden');
+    document.getElementById('modal-fornitura').classList.remove('hidden');
+}
+
+function abrirEditarFornituraModal(id) {
+    const f = forniturasData.find(x => x.id === id);
+    if (!f) return;
+    document.getElementById('modal-fornitura-title').innerText = `Editar: ${f.nombre}`;
+    document.getElementById('form-fornitura-id').value = f.id;
+    document.getElementById('form-fornitura-nombre').value = f.nombre || '';
+    document.getElementById('form-fornitura-cantidad').value = f.cantidad ?? 0;
+    document.getElementById('form-fornitura-unidades').value = f.unidades || 'ud';
+    document.getElementById('form-fornitura-coste').value = f.coste_unitario ?? 0.10;
+    document.getElementById('form-fornitura-ubicacion').value = f.ubicacion || 'Taller';
+    document.getElementById('btn-guardar-fornitura-text').innerText = 'Guardar Cambios';
+    const btnEliminar = document.getElementById('btn-eliminar-fornitura');
+    if (btnEliminar) btnEliminar.classList.remove('hidden');
+    document.getElementById('modal-fornitura').classList.remove('hidden');
+}
+
+function cerrarModalFornitura() {
+    document.getElementById('modal-fornitura').classList.add('hidden');
+}
+
+async function guardarFornituraModal(e) {
+    e.preventDefault();
+    const idVal = document.getElementById('form-fornitura-id').value;
+    const fid = idVal ? parseInt(idVal) : null;
+
+    const payload = {
+        nombre: (document.getElementById('form-fornitura-nombre').value || 'Nuevo Objeto').trim(),
+        cantidad: parseFloat(document.getElementById('form-fornitura-cantidad').value) || 0,
+        unidades: (document.getElementById('form-fornitura-unidades').value || 'ud').trim(),
+        coste_unitario: parseFloat(document.getElementById('form-fornitura-coste').value) || 0.10,
+        ubicacion: document.getElementById('form-fornitura-ubicacion').value || 'Taller'
+    };
+
+    try {
+        if (fid) {
+            const res = await fetch(`/api/fornituras/${fid}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error('Error al actualizar objeto');
+            mostrarNotificacion(`Objeto "${payload.nombre}" actualizado.`);
+        } else {
+            const res = await fetch('/api/fornituras', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error('Error al añadir objeto');
+            mostrarNotificacion(`¡Objeto "${payload.nombre}" añadido al inventario!`);
+        }
+        cerrarModalFornitura();
+        await loadFornituras();
+    } catch (err) {
+        console.error('Error guardando fornitura:', err);
+        alert('Error al guardar el objeto.');
+    }
+}
+
+async function eliminarFornituraActualModal() {
+    const idVal = document.getElementById('form-fornitura-id').value;
+    if (!idVal) return;
+    const fid = parseInt(idVal);
+    const nombre = document.getElementById('form-fornitura-nombre').value || 'este objeto';
+
+    if (!confirm(`¿Estás seguro de que deseas eliminar permanentemente "${nombre}" de la lista de objetos?`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch(`/api/fornituras/${fid}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Error al eliminar');
+        cerrarModalFornitura();
+        await loadFornituras();
+        mostrarNotificacion(`Objeto "${nombre}" eliminado.`);
+    } catch (e) {
+        console.error('Error eliminando fornitura:', e);
+        alert('Error al eliminar el objeto.');
+    }
 }
 
 async function ajustarFornitura(id, delta) {
