@@ -30,6 +30,9 @@ from app.database import (
     update_fornitura,
     add_fornitura,
     delete_fornitura,
+    get_all_transferencias,
+    add_transferencia,
+    delete_transferencia,
     get_balance_financiero,
     get_all_proyectos_calculadora,
     save_proyecto_calculadora,
@@ -214,6 +217,22 @@ def api_delete_gasto_maquinaria(gasto_id: int):
 def api_get_balance():
     return get_balance_financiero()
 
+# --- API TRANSFERENCIAS Y CUADRES ENTRE SOCIOS ---
+@app.get("/api/transferencias")
+def api_get_transferencias():
+    return get_all_transferencias()
+
+@app.post("/api/transferencias")
+def api_add_transferencia(datos: dict):
+    return add_transferencia(datos)
+
+@app.delete("/api/transferencias/{transferencia_id}")
+def api_delete_transferencia(transferencia_id: int):
+    ok = delete_transferencia(transferencia_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Transferencia no encontrada")
+    return {"status": "ok", "deleted": transferencia_id}
+
 # --- EXPORTAR EXCEL ---
 @app.get("/api/export/excel")
 def api_export_excel():
@@ -264,6 +283,18 @@ def api_export_excel():
         cell.fill = PatternFill(start_color="B45309", end_color="B45309", fill_type="solid")
     for f in get_all_fornituras():
         ws_forn.append([f["id"], f["nombre"], f["cantidad"], f.get("unidades", "ud"), f.get("coste_unitario", 0.0), f.get("ubicacion", "Taller")])
+
+    # 5. Pestaña Transferencias entre Socios
+    ws_trans = wb.create_sheet(title="Transferencias Socios")
+    ws_trans.append(["ID", "Fecha", "Emisor (De)", "Receptor (A)", "Cantidad (€)", "Concepto", "Método", "Notas"])
+    for cell in ws_trans[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="059669", end_color="059669", fill_type="solid")
+    for t in get_all_transferencias():
+        ws_trans.append([
+            t["id"], t["fecha"], t["de_socio"], t["a_socio"],
+            t["cantidad"], t.get("concepto", ""), t.get("metodo", "Bizum"), t.get("notas", "")
+        ])
         
     stream = io.BytesIO()
     wb.save(stream)

@@ -116,6 +116,37 @@ function updateBalanceUI() {
     document.getElementById('settlement-javi-net').innerText = `${liq.dinero_neto_javi.toFixed(2)} €`;
     document.getElementById('settlement-ideal-half').innerText = `${liq.cuota_ideal_cada_uno.toFixed(2)} €`;
 
+    // Resumen de efectivo real y total transferido
+    const totalTransEl = document.getElementById('settlement-total-transferido');
+    if (totalTransEl) {
+        totalTransEl.innerText = `${(liq.total_transferido_acumulado || 0).toFixed(2)} €`;
+    }
+    const realPabloEl = document.getElementById('settlement-real-pablo');
+    if (realPabloEl) {
+        realPabloEl.innerText = `${(liq.dinero_real_pablo !== undefined ? liq.dinero_real_pablo : liq.dinero_neto_pablo).toFixed(2)} €`;
+    }
+    const realJaviEl = document.getElementById('settlement-real-javi');
+    if (realJaviEl) {
+        realJaviEl.innerText = `${(liq.dinero_real_javi !== undefined ? liq.dinero_real_javi : liq.dinero_neto_javi).toFixed(2)} €`;
+    }
+
+    // Botón de cuadre rápido
+    const btnCuadrar = document.getElementById('btn-cuadrar-rapido');
+    const btnCuadrarText = document.getElementById('btn-cuadrar-rapido-text');
+    if (btnCuadrar) {
+        if (liq.quien_debe && liq.cantidad_a_transferir > 0.01) {
+            btnCuadrar.classList.remove('hidden');
+            if (btnCuadrarText) {
+                btnCuadrarText.innerText = `Cuadrar ${liq.cantidad_a_transferir.toFixed(2)} € (${liq.quien_debe} ➡️ ${liq.a_quien})`;
+            }
+        } else {
+            btnCuadrar.classList.add('hidden');
+        }
+    }
+
+    // Tabla de transferencias
+    renderTransferenciasTable(balanceData.transferencias || []);
+
     // Pending Orders Alert List
     const pendList = document.getElementById('pending-orders-list');
     pendList.innerHTML = '';
@@ -1576,4 +1607,155 @@ function abrirModalDbHelp() {
 function cerrarModalDbHelp() {
     const modal = document.getElementById('modal-db-help');
     if (modal) modal.classList.add('hidden');
+}
+
+// --- TRANSFERENCIAS Y CUADRES ENTRE SOCIOS ---
+function renderTransferenciasTable(transferencias) {
+    const tbody = document.getElementById('transferencias-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (!transferencias || transferencias.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="py-8 text-center text-slate-500 italic">
+                    Aún no hay transferencias o Bizums registrados. Cuando hagáis un envío para cuadrar las cuentas, pulsa en "+ Registrar Bizum / Transferencia".
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    transferencias.forEach(t => {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors';
+        
+        const deIsPablo = (t.de_socio || '').toUpperCase().includes('P');
+        const badgeDe = deIsPablo 
+            ? '<span class="px-2 py-0.5 rounded bg-blue-950/60 border border-blue-700/50 text-blue-300 font-bold whitespace-nowrap">👤 Pablo</span>'
+            : '<span class="px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-700/50 text-emerald-300 font-bold whitespace-nowrap">👤 Javi</span>';
+            
+        const badgeA = deIsPablo
+            ? '<span class="px-2 py-0.5 rounded bg-emerald-950/60 border border-emerald-700/50 text-emerald-300 font-bold whitespace-nowrap">👤 Javi</span>'
+            : '<span class="px-2 py-0.5 rounded bg-blue-950/60 border border-blue-700/50 text-blue-300 font-bold whitespace-nowrap">👤 Pablo</span>';
+
+        tr.innerHTML = `
+            <td class="py-2.5 px-3 font-mono text-slate-400 whitespace-nowrap">${t.fecha || '-'}</td>
+            <td class="py-2.5 px-3">${badgeDe}</td>
+            <td class="py-2.5 px-3">${badgeA}</td>
+            <td class="py-2.5 px-3 text-right font-mono font-bold text-emerald-400 whitespace-nowrap text-sm">
+                +${parseFloat(t.cantidad).toFixed(2)} €
+            </td>
+            <td class="py-2.5 px-3 text-slate-300">
+                <div class="font-medium">${t.concepto || 'Cuadre de cuentas'}</div>
+                ${t.notas ? `<div class="text-[11px] text-slate-500 italic">${t.notas}</div>` : ''}
+            </td>
+            <td class="py-2.5 px-3 text-center whitespace-nowrap">
+                <span class="px-2 py-0.5 rounded text-[11px] bg-slate-800 text-slate-300 border border-slate-700">${t.metodo || 'Bizum'}</span>
+            </td>
+            <td class="py-2.5 px-3 text-center">
+                <button onclick="eliminarTransferenciaConfirmar(${t.id})" class="p-1 text-slate-500 hover:text-red-400 rounded transition-colors" title="Eliminar registro de transferencia">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                </button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function abrirModalTransferencia(prefillAmount = null, deSocio = 'Pablo', aSocio = 'Javi') {
+    document.getElementById('form-trans-id').value = '';
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('form-trans-fecha').value = today;
+    
+    document.getElementById('form-trans-de').value = deSocio;
+    document.getElementById('form-trans-a').value = aSocio;
+    
+    if (prefillAmount !== null && prefillAmount > 0) {
+        document.getElementById('form-trans-cantidad').value = prefillAmount.toFixed(2);
+        document.getElementById('form-trans-concepto').value = `Cuadre liquidación (${deSocio} a ${aSocio})`;
+    } else {
+        document.getElementById('form-trans-cantidad').value = '';
+        document.getElementById('form-trans-concepto').value = 'Cuadre de cuentas 50/50';
+    }
+    
+    document.getElementById('form-trans-metodo').value = 'Bizum';
+    document.getElementById('form-trans-notas').value = '';
+    
+    document.getElementById('modal-transferencia').classList.remove('hidden');
+}
+
+function abrirModalTransferenciaRapida() {
+    if (!balanceData || !balanceData.liquidacion) return;
+    const liq = balanceData.liquidacion;
+    if (liq.quien_debe && liq.cantidad_a_transferir > 0) {
+        abrirModalTransferencia(liq.cantidad_a_transferir, liq.quien_debe, liq.a_quien);
+    } else {
+        abrirModalTransferencia();
+    }
+}
+
+function actualizarReceptorAutomatico() {
+    const emisor = document.getElementById('form-trans-de').value;
+    const receptorSel = document.getElementById('form-trans-a');
+    if (emisor === 'Pablo') {
+        receptorSel.value = 'Javi';
+    } else {
+        receptorSel.value = 'Pablo';
+    }
+}
+
+function cerrarModalTransferencia() {
+    const modal = document.getElementById('modal-transferencia');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function guardarTransferenciaModal(e) {
+    e.preventDefault();
+    const cantVal = parseFloat(document.getElementById('form-trans-cantidad').value);
+    if (!cantVal || cantVal <= 0) {
+        alert('Por favor introduce un importe válido superior a 0 €.');
+        return;
+    }
+
+    const payload = {
+        fecha: document.getElementById('form-trans-fecha').value || new Date().toISOString().split('T')[0],
+        de_socio: document.getElementById('form-trans-de').value,
+        a_socio: document.getElementById('form-trans-a').value,
+        cantidad: cantVal,
+        metodo: document.getElementById('form-trans-metodo').value || 'Bizum',
+        concepto: (document.getElementById('form-trans-concepto').value || 'Cuadre de cuentas').trim(),
+        notas: (document.getElementById('form-trans-notas').value || '').trim()
+    };
+
+    try {
+        const res = await fetch('/api/transferencias', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Error al registrar transferencia');
+        
+        cerrarModalTransferencia();
+        await loadBalance();
+        mostrarNotificacion(`¡Transferencia de ${payload.cantidad.toFixed(2)} € (${payload.de_socio} ➡️ ${payload.a_socio}) registrada con éxito!`);
+    } catch (err) {
+        console.error('Error registrando transferencia:', err);
+        alert('Error al guardar la transferencia. Comprueba los datos.');
+    }
+}
+
+async function eliminarTransferenciaConfirmar(id) {
+    if (!confirm('¿Deseas eliminar este registro de transferencia? El saldo de liquidación se recalculará automáticamente.')) {
+        return;
+    }
+    try {
+        const res = await fetch(`/api/transferencias/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Error al eliminar');
+        await loadBalance();
+        mostrarNotificacion('Registro de transferencia eliminado.');
+    } catch (e) {
+        console.error('Error eliminando transferencia:', e);
+        alert('Error al eliminar la transferencia.');
+    }
 }

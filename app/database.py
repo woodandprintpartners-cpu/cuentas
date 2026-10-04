@@ -229,6 +229,21 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """))
+
+        # 7. Transferencias y Cuadres entre Socios
+        c.execute(adapt_sql(f"""
+        CREATE TABLE IF NOT EXISTS transferencias_socios (
+            id {auto_id},
+            fecha TEXT NOT NULL,
+            de_socio TEXT NOT NULL,
+            a_socio TEXT NOT NULL,
+            cantidad REAL NOT NULL,
+            concepto TEXT DEFAULT 'Cuadre de cuentas',
+            metodo TEXT DEFAULT 'Bizum',
+            notas TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """))
         
         conn.commit()
 
@@ -630,6 +645,60 @@ def delete_fornitura(fornitura_id: int) -> bool:
     execute_query("DELETE FROM fornituras WHERE id = ?", (fornitura_id,), commit=True)
     return True
 
+# --- TRANSFERENCIAS Y CUADRES ENTRE SOCIOS ---
+def get_all_transferencias() -> List[Dict[str, Any]]:
+    return execute_query("SELECT * FROM transferencias_socios ORDER BY fecha DESC, id DESC", fetchall=True) or []
+
+def add_transferencia(data: Dict[str, Any]) -> Dict[str, Any]:
+    fecha = str(data.get("fecha") or datetime.today().strftime("%Y-%m-%d")).strip()
+    de_socio = str(data.get("de_socio", "Pablo")).strip()
+    
+    # Normalizar emisor y receptor
+    if de_socio.upper() in ["P", "PABLO"]:
+        de_socio = "Pablo"
+        a_socio = "Javi"
+    elif de_socio.upper() in ["J", "JAVI"]:
+        de_socio = "Javi"
+        a_socio = "Pablo"
+    else:
+        a_socio = "Javi"
+
+    if "a_socio" in data and str(data.get("a_socio", "")).strip():
+        as_val = str(data.get("a_socio", "")).strip()
+        if as_val.upper() in ["P", "PABLO"]:
+            a_socio = "Pablo"
+        elif as_val.upper() in ["J", "JAVI"]:
+            a_socio = "Javi"
+            
+    cantidad = float(data.get("cantidad", 0.0))
+    concepto = str(data.get("concepto") or "Cuadre de cuentas").strip()
+    metodo = str(data.get("metodo") or "Bizum").strip()
+    notas = str(data.get("notas") or "").strip()
+    
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        sql = adapt_sql("""
+        INSERT INTO transferencias_socios (fecha, de_socio, a_socio, cantidad, concepto, metodo, notas)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """)
+        cur.execute(sql, (fecha, de_socio, a_socio, cantidad, concepto, metodo, notas))
+        conn.commit()
+        if IS_POSTGRES:
+            cur.execute("SELECT * FROM transferencias_socios ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+        else:
+            tid = cur.lastrowid
+            cur.execute("SELECT * FROM transferencias_socios WHERE id = ?", (tid,))
+            row = cur.fetchone()
+        return dict(row) if row else {}
+    finally:
+        conn.close()
+
+def delete_transferencia(transferencia_id: int) -> bool:
+    execute_query("DELETE FROM transferencias_socios WHERE id = ?", (transferencia_id,), commit=True)
+    return True
+
 # --- BALANCE Y LIQUIDACIÓN ---
 def get_balance_financiero() -> Dict[str, Any]:
     pedidos = execute_query("SELECT * FROM pedidos", fetchall=True) or []
@@ -708,28 +777,63 @@ def get_balance_financiero() -> Dict[str, Any]:
         elif "W" in pg:
             gmaq_empresa += pr
             
+    # Transferencias y Cuadres entre Socios
+    transferencias = execute_query("SELECT * FROM transferencias_socios ORDER BY fecha DESC, id DESC", fetchall=True) or []
+    total_transferido_pablo_a_javi = 0.0
+    total_transferido_javi_a_pablo = 0.0
+    
+    for t in transferencias:
+        cant = float(t.get("cantidad") or 0.0)
+        de = str(t.get("de_socio") or "").strip().upper()
+        if "PABLO" in de or de == "P":
+            total_transferido_pablo_a_javi += cant
+        elif "JAVI" in de or de == "J":
+            total_transferido_javi_a_pablo += cant
+            
+    transferencias_netas = total_transferido_pablo_a_javi - total_transferido_javi_a_pablo
+    total_transferido_acumulado = total_transferido_pablo_a_javi + total_transferido_javi_a_pablo
+
     dinero_neto_pablo = cobrado_pablo - gmat_pablo
     dinero_neto_javi = cobrado_javi - gmat_javi
     
     beneficio_repartible = dinero_neto_pablo + dinero_neto_javi
     cuota_50_50 = beneficio_repartible / 2.0
     
+    # Diferencia teórica antes de transferencias
     diferencia = dinero_neto_pablo - cuota_50_50
-    if diferencia > 0.01:
+
+    # Saldo pendiente real tras considerar las transferencias ya realizadas
+    # Si diferencia > 0, Pablo debía dinero a Javi. Restamos lo que Pablo ya transfirió a Javi (neto).
+    saldo_pendiente_pablo = diferencia - transferencias_netas
+    
+    # Dinero real en mano tras transferencias
+    dinero_real_pablo = round(dinero_neto_pablo - transferencias_netas, 2)
+    dinero_real_javi = round(dinero_neto_javi + transferencias_netas, 2)
+
+    if saldo_pendiente_pablo > 0.01:
         quien_debe = "Pablo"
         a_quien = "Javi"
-        cantidad_a_transferir = round(diferencia, 2)
-        mensaje_liquidacion = f"Pablo debe transferir a Javi {cantidad_a_transferir:.2f} € para igualar beneficios y compensar materiales."
-    elif diferencia < -0.01:
+        cantidad_a_transferir = round(saldo_pendiente_pablo, 2)
+        if total_transferido_acumulado > 0:
+            mensaje_liquidacion = f"Pablo debe transferir a Javi {cantidad_a_transferir:.2f} € pendientes para cuadrar cuentas (ya se han compensado {total_transferido_pablo_a_javi:.2f} €)."
+        else:
+            mensaje_liquidacion = f"Pablo debe transferir a Javi {cantidad_a_transferir:.2f} € para igualar beneficios y compensar materiales."
+    elif saldo_pendiente_pablo < -0.01:
         quien_debe = "Javi"
         a_quien = "Pablo"
-        cantidad_a_transferir = round(abs(diferencia), 2)
-        mensaje_liquidacion = f"Javi debe transferir a Pablo {cantidad_a_transferir:.2f} € para igualar beneficios y compensar materiales."
+        cantidad_a_transferir = round(abs(saldo_pendiente_pablo), 2)
+        if total_transferido_acumulado > 0:
+            mensaje_liquidacion = f"Javi debe transferir a Pablo {cantidad_a_transferir:.2f} € pendientes para cuadrar cuentas (ya se han compensado {total_transferido_javi_a_pablo:.2f} €)."
+        else:
+            mensaje_liquidacion = f"Javi debe transferir a Pablo {cantidad_a_transferir:.2f} € para igualar beneficios y compensar materiales."
     else:
         quien_debe = None
         a_quien = None
         cantidad_a_transferir = 0.0
-        mensaje_liquidacion = "¡Cuentas al día! Ambos socios están exactamente al 50% de beneficios netos."
+        if total_transferido_acumulado > 0:
+            mensaje_liquidacion = f"¡Cuentas al día! Tras compensar {total_transferido_acumulado:.2f} €, ambos socios están exactamente al 50% de beneficios."
+        else:
+            mensaje_liquidacion = "¡Cuentas al día! Ambos socios están exactamente al 50% de beneficios netos."
         
     return {
         "ingresos": {
@@ -760,14 +864,22 @@ def get_balance_financiero() -> Dict[str, Any]:
         "liquidacion": {
             "dinero_neto_pablo": round(dinero_neto_pablo, 2),
             "dinero_neto_javi": round(dinero_neto_javi, 2),
+            "dinero_real_pablo": dinero_real_pablo,
+            "dinero_real_javi": dinero_real_javi,
             "beneficio_neto_total": round(beneficio_repartible, 2),
             "cuota_ideal_cada_uno": round(cuota_50_50, 2),
+            "diferencia_teorica": round(diferencia, 2),
+            "total_transferido_pablo_a_javi": round(total_transferido_pablo_a_javi, 2),
+            "total_transferido_javi_a_pablo": round(total_transferido_javi_a_pablo, 2),
+            "transferencias_netas": round(transferencias_netas, 2),
+            "total_transferido_acumulado": round(total_transferido_acumulado, 2),
             "quien_debe": quien_debe,
             "a_quien": a_quien,
             "cantidad_a_transferir": cantidad_a_transferir,
             "mensaje": mensaje_liquidacion
         },
-        "pedidos_pendientes": pedidos_pendientes_lista
+        "pedidos_pendientes": pedidos_pendientes_lista,
+        "transferencias": transferencias
     }
 
 # --- PROYECTOS CALCULADORA GUARDADOS ---
