@@ -22,10 +22,18 @@ from app.database import (
     add_gasto_maquinaria,
     delete_gasto_maquinaria,
     get_all_stock,
+    add_stock_item,
     update_stock_item,
+    delete_stock_item,
     descontar_stock,
+    descontar_stock_lote,
     get_all_fornituras,
     update_fornitura,
+    add_fornitura,
+    delete_fornitura,
+    get_all_transferencias,
+    add_transferencia,
+    delete_transferencia,
     get_balance_financiero,
     get_all_proyectos_calculadora,
     save_proyecto_calculadora,
@@ -111,12 +119,23 @@ def api_delete_pedido(pedido_id: str):
 def api_get_stock():
     return get_all_stock()
 
+@app.post("/api/stock")
+def api_create_stock(datos: dict):
+    return add_stock_item(datos)
+
 @app.put("/api/stock/{stock_id}")
 def api_update_stock(stock_id: int, datos: dict):
     s = update_stock_item(stock_id, datos)
     if not s:
         raise HTTPException(status_code=404, detail="Material no encontrado")
     return s
+
+@app.delete("/api/stock/{stock_id}")
+def api_delete_stock(stock_id: int):
+    ok = delete_stock_item(stock_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Material no encontrado")
+    return {"status": "ok", "deleted": stock_id}
 
 @app.post("/api/stock/descontar")
 def api_descontar_stock(datos: dict):
@@ -128,18 +147,47 @@ def api_descontar_stock(datos: dict):
         raise HTTPException(status_code=404, detail="Material no encontrado")
     return res
 
+@app.post("/api/stock/descontar-lote")
+def api_descontar_stock_lote(datos: dict):
+    items = datos.get("items", [])
+    socio = str(datos.get("socio", "W"))
+    res = descontar_stock_lote(items, socio)
+    return {"status": "ok", "descontados": res}
+
 # --- API FORNITURAS ---
 @app.get("/api/fornituras")
 def api_get_fornituras():
     return get_all_fornituras()
 
+@app.post("/api/fornituras")
+def api_add_fornitura(datos: dict):
+    return add_fornitura(datos)
+
 @app.put("/api/fornituras/{fornitura_id}")
 def api_update_fornitura(fornitura_id: int, datos: dict):
-    cantidad = float(datos.get("cantidad", 0.0))
-    f = update_fornitura(fornitura_id, cantidad)
+    cantidad = datos.get("cantidad")
+    ubicacion = datos.get("ubicacion")
+    nombre = datos.get("nombre")
+    unidades = datos.get("unidades")
+    coste_unitario = datos.get("coste_unitario")
+    f = update_fornitura(
+        fornitura_id,
+        cantidad=float(cantidad) if cantidad is not None else None,
+        ubicacion=str(ubicacion) if ubicacion is not None else None,
+        nombre=str(nombre) if nombre is not None else None,
+        unidades=str(unidades) if unidades is not None else None,
+        coste_unitario=float(coste_unitario) if coste_unitario is not None else None
+    )
     if not f:
         raise HTTPException(status_code=404, detail="Fornitura no encontrada")
     return f
+
+@app.delete("/api/fornituras/{fornitura_id}")
+def api_delete_fornitura(fornitura_id: int):
+    ok = delete_fornitura(fornitura_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Fornitura no encontrada")
+    return {"status": "ok", "deleted": fornitura_id}
 
 # --- API GASTOS ---
 @app.get("/api/gastos/material")
@@ -177,6 +225,22 @@ def api_delete_gasto_maquinaria(gasto_id: int):
 def api_get_balance():
     return get_balance_financiero()
 
+# --- API TRANSFERENCIAS Y CUADRES ENTRE SOCIOS ---
+@app.get("/api/transferencias")
+def api_get_transferencias():
+    return get_all_transferencias()
+
+@app.post("/api/transferencias")
+def api_add_transferencia(datos: dict):
+    return add_transferencia(datos)
+
+@app.delete("/api/transferencias/{transferencia_id}")
+def api_delete_transferencia(transferencia_id: int):
+    ok = delete_transferencia(transferencia_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Transferencia no encontrada")
+    return {"status": "ok", "deleted": transferencia_id}
+
 # --- EXPORTAR EXCEL ---
 @app.get("/api/export/excel")
 def api_export_excel():
@@ -212,12 +276,33 @@ def api_export_excel():
         
     # 3. Pestaña Stock
     ws_stock = wb.create_sheet(title="Stock Materiales")
-    ws_stock.append(["Tipo", "Color", "Stock Total (g)", "Pablo (g)", "Javi (g)", "Precio kg (€)"])
+    ws_stock.append(["Tipo", "Color", "Stock Total (g)", "Pablo (g)", "Javi (g)", "Precio kg (€)", "Ubicación / Custodia"])
     for cell in ws_stock[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill(start_color="4338CA", end_color="4338CA", fill_type="solid")
     for s in get_all_stock():
-        ws_stock.append([s["tipo"], s["color"], s["stock_total_g"], s["pablo_g"], s["javi_g"], s["precio_kg_estimado"]])
+        ws_stock.append([s["tipo"], s["color"], s["stock_total_g"], s["pablo_g"], s["javi_g"], s["precio_kg_estimado"], s.get("ubicacion", "Taller")])
+        
+    # 4. Pestaña Fornituras y Objetos
+    ws_forn = wb.create_sheet(title="Fornituras y Objetos")
+    ws_forn.append(["ID", "Nombre", "Cantidad", "Unidades", "Coste Ud (€)", "Ubicación / Custodia"])
+    for cell in ws_forn[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="B45309", end_color="B45309", fill_type="solid")
+    for f in get_all_fornituras():
+        ws_forn.append([f["id"], f["nombre"], f["cantidad"], f.get("unidades", "ud"), f.get("coste_unitario", 0.0), f.get("ubicacion", "Taller")])
+
+    # 5. Pestaña Transferencias entre Socios
+    ws_trans = wb.create_sheet(title="Transferencias Socios")
+    ws_trans.append(["ID", "Fecha", "Emisor (De)", "Receptor (A)", "Cantidad (€)", "Concepto", "Método", "Notas"])
+    for cell in ws_trans[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="059669", end_color="059669", fill_type="solid")
+    for t in get_all_transferencias():
+        ws_trans.append([
+            t["id"], t["fecha"], t["de_socio"], t["a_socio"],
+            t["cantidad"], t.get("concepto", ""), t.get("metodo", "Bizum"), t.get("notas", "")
+        ])
         
     stream = io.BytesIO()
     wb.save(stream)

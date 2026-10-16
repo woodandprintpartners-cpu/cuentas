@@ -201,7 +201,8 @@ def init_db():
             pablo_rollos_json TEXT DEFAULT '[]',
             javi_rollos_json TEXT DEFAULT '[]',
             precio_kg_estimado REAL DEFAULT 20.0,
-            alerta_minimo_g REAL DEFAULT 200.0
+            alerta_minimo_g REAL DEFAULT 200.0,
+            ubicacion TEXT DEFAULT 'Taller'
         )
         """))
         
@@ -212,7 +213,8 @@ def init_db():
             nombre TEXT NOT NULL,
             cantidad REAL DEFAULT 0,
             unidades TEXT DEFAULT 'ud',
-            coste_unitario REAL DEFAULT 0.0
+            coste_unitario REAL DEFAULT 0.0,
+            ubicacion TEXT DEFAULT 'Taller'
         )
         """))
         
@@ -227,8 +229,44 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """))
+
+        # 7. Transferencias y Cuadres entre Socios
+        c.execute(adapt_sql(f"""
+        CREATE TABLE IF NOT EXISTS transferencias_socios (
+            id {auto_id},
+            fecha TEXT NOT NULL,
+            de_socio TEXT NOT NULL,
+            a_socio TEXT NOT NULL,
+            cantidad REAL NOT NULL,
+            concepto TEXT DEFAULT 'Cuadre de cuentas',
+            metodo TEXT DEFAULT 'Bizum',
+            notas TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """))
         
         conn.commit()
+
+        # Migraciones seguras para bases de datos existentes (Postgres y SQLite)
+        try:
+            if IS_POSTGRES:
+                c.execute("ALTER TABLE materiales_stock ADD COLUMN IF NOT EXISTS ubicacion TEXT DEFAULT 'Taller';")
+                c.execute("ALTER TABLE fornituras ADD COLUMN IF NOT EXISTS ubicacion TEXT DEFAULT 'Taller';")
+                conn.commit()
+            else:
+                c.execute("PRAGMA table_info(materiales_stock)")
+                cols_stock = [r[1] if isinstance(r, tuple) else r["name"] for r in c.fetchall()]
+                if "ubicacion" not in cols_stock:
+                    c.execute("ALTER TABLE materiales_stock ADD COLUMN ubicacion TEXT DEFAULT 'Taller'")
+                    conn.commit()
+                    
+                c.execute("PRAGMA table_info(fornituras)")
+                cols_forn = [r[1] if isinstance(r, tuple) else r["name"] for r in c.fetchall()]
+                if "ubicacion" not in cols_forn:
+                    c.execute("ALTER TABLE fornituras ADD COLUMN ubicacion TEXT DEFAULT 'Taller'")
+                    conn.commit()
+        except Exception as mig_err:
+            print(f"[DB MIGRATION NOTICE] {mig_err}")
     finally:
         conn.close()
 
@@ -444,6 +482,8 @@ def get_all_stock() -> List[Dict[str, Any]]:
         d = dict(r)
         d["pablo_rollos"] = json.loads(d.get("pablo_rollos_json") or "[]")
         d["javi_rollos"] = json.loads(d.get("javi_rollos_json") or "[]")
+        if not d.get("ubicacion"):
+            d["ubicacion"] = "Taller"
         res.append(d)
     return res
 
@@ -451,11 +491,13 @@ def update_stock_item(stock_id: int, data: Dict[str, Any]) -> Optional[Dict[str,
     pablo_g = float(data.get("pablo_g", 0.0))
     javi_g = float(data.get("javi_g", 0.0))
     stock_total_g = pablo_g + javi_g
+    ubicacion = str(data.get("ubicacion") or "Taller").strip()
     
     sql = """
     UPDATE materiales_stock SET
         tipo = ?, color = ?, color_hex = ?, stock_total_g = ?,
-        pablo_g = ?, javi_g = ?, precio_kg_estimado = ?, alerta_minimo_g = ?
+        pablo_g = ?, javi_g = ?, precio_kg_estimado = ?, alerta_minimo_g = ?,
+        ubicacion = ?
     WHERE id = ?
     """
     params = (
@@ -467,41 +509,247 @@ def update_stock_item(stock_id: int, data: Dict[str, Any]) -> Optional[Dict[str,
         javi_g,
         float(data.get("precio_kg_estimado", 20.0)),
         float(data.get("alerta_minimo_g", 200.0)),
+        ubicacion,
         stock_id
     )
     execute_query(sql, params, commit=True)
     return execute_query("SELECT * FROM materiales_stock WHERE id = ?", (stock_id,), fetchone=True)
 
-def descontar_stock(stock_id: int, gramos: float, socio: str) -> Optional[Dict[str, Any]]:
+def descontar_stock(stock_id: int, gramos: float, socio: str = "W") -> Optional[Dict[str, Any]]:
     row = execute_query("SELECT * FROM materiales_stock WHERE id = ?", (stock_id,), fetchone=True)
     if not row:
         return None
         
-    pablo_g = float(row["pablo_g"])
-    javi_g = float(row["javi_g"])
-    socio = socio.upper().strip()
+    pablo_g = float(row["pablo_g"] or 0.0)
+    javi_g = float(row["javi_g"] or 0.0)
+    socio = (socio or "W").upper().strip()
+    gramos_a_descontar = max(0.0, float(gramos))
     
     if socio == "P":
-        pablo_g = max(0.0, pablo_g - gramos)
+        # Descuenta primero de Pablo, si no alcanza descuenta el resto de Javi
+        if pablo_g >= gramos_a_descontar:
+            pablo_g -= gramos_a_descontar
+        else:
+            resto = gramos_a_descontar - pablo_g
+            pablo_g = 0.0
+            javi_g = max(0.0, javi_g - resto)
     elif socio == "J":
-        javi_g = max(0.0, javi_g - gramos)
-    else:
-        mitad = gramos / 2.0
-        pablo_g = max(0.0, pablo_g - mitad)
-        javi_g = max(0.0, javi_g - mitad)
+        # Descuenta primero de Javi, si no alcanza descuenta el resto de Pablo
+        if javi_g >= gramos_a_descontar:
+            javi_g -= gramos_a_descontar
+        else:
+            resto = gramos_a_descontar - javi_g
+            javi_g = 0.0
+            pablo_g = max(0.0, pablo_g - resto)
+    else:  # "W" o taller/ambos
+        mitad = gramos_a_descontar / 2.0
+        if pablo_g >= mitad and javi_g >= mitad:
+            pablo_g -= mitad
+            javi_g -= mitad
+        elif pablo_g < mitad and javi_g >= mitad:
+            resto = mitad - pablo_g
+            pablo_g = 0.0
+            javi_g = max(0.0, javi_g - mitad - resto)
+        elif javi_g < mitad and pablo_g >= mitad:
+            resto = mitad - javi_g
+            javi_g = 0.0
+            pablo_g = max(0.0, pablo_g - mitad - resto)
+        else:
+            pablo_g = 0.0
+            javi_g = 0.0
         
-    total_g = pablo_g + javi_g
+    total_g = max(0.0, pablo_g + javi_g)
     sql = "UPDATE materiales_stock SET pablo_g = ?, javi_g = ?, stock_total_g = ? WHERE id = ?"
     execute_query(sql, (pablo_g, javi_g, total_g, stock_id), commit=True)
-    return {"id": stock_id, "pablo_g": pablo_g, "javi_g": javi_g, "stock_total_g": total_g}
+    return {
+        "id": stock_id,
+        "tipo": row.get("tipo"),
+        "color": row.get("color"),
+        "pablo_g": pablo_g,
+        "javi_g": javi_g,
+        "stock_total_g": total_g,
+        "descontado_g": gramos_a_descontar
+    }
+
+def descontar_stock_lote(items: List[Dict[str, Any]], socio: str = "W") -> List[Dict[str, Any]]:
+    """
+    Descuenta una lista de consumos de filamento:
+    items: [{"stock_id": int, "gramos": float}, ...]
+    """
+    resultados = []
+    for it in items:
+        try:
+            stock_id = int(it.get("stock_id") or it.get("id") or 0)
+            gramos = float(it.get("gramos", 0.0))
+            if stock_id and gramos > 0:
+                res = descontar_stock(stock_id, gramos, socio)
+                if res:
+                    resultados.append(res)
+        except Exception as e:
+            print(f"Error descontando stock item {it}: {e}")
+    return resultados
+
+
+def add_stock_item(data: Dict[str, Any]) -> Dict[str, Any]:
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        sql = adapt_sql("""
+        INSERT INTO materiales_stock (
+            tipo, color, color_hex, stock_total_g, pablo_g, javi_g,
+            pablo_rollos_json, javi_rollos_json, precio_kg_estimado, alerta_minimo_g, ubicacion
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """)
+        tipo = str(data.get("tipo", "PLA")).strip().upper() or "PLA"
+        color = str(data.get("color", "Nuevo Color")).strip() or "Nuevo Color"
+        color_hex = str(data.get("color_hex") or guess_hex_color(color)).strip()
+        pablo_g = float(data.get("pablo_g", 0.0))
+        javi_g = float(data.get("javi_g", 0.0))
+        stock_total_g = pablo_g + javi_g
+        precio_kg = float(data.get("precio_kg_estimado", 20.0))
+        alerta = float(data.get("alerta_minimo_g", 200.0))
+        ubicacion = str(data.get("ubicacion") or "Taller").strip()
+
+        params = (
+            tipo, color, color_hex, stock_total_g, pablo_g, javi_g,
+            "[]", "[]", precio_kg, alerta, ubicacion
+        )
+        cur.execute(sql, params)
+        conn.commit()
+        if IS_POSTGRES:
+            cur.execute("SELECT * FROM materiales_stock ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+        else:
+            sid = cur.lastrowid
+            cur.execute("SELECT * FROM materiales_stock WHERE id = ?", (sid,))
+            row = cur.fetchone()
+        return dict(row) if row else {}
+    finally:
+        conn.close()
+
+def delete_stock_item(stock_id: int) -> bool:
+    execute_query("DELETE FROM materiales_stock WHERE id = ?", (stock_id,), commit=True)
+    return True
 
 # --- FORNITURAS ---
 def get_all_fornituras() -> List[Dict[str, Any]]:
-    return execute_query("SELECT * FROM fornituras ORDER BY id ASC", fetchall=True) or []
+    rows = execute_query("SELECT * FROM fornituras ORDER BY id ASC", fetchall=True) or []
+    res = []
+    for r in rows:
+        d = dict(r)
+        if not d.get("ubicacion"):
+            d["ubicacion"] = "Taller"
+        res.append(d)
+    return res
 
-def update_fornitura(fornitura_id: int, cantidad: float) -> Optional[Dict[str, Any]]:
-    execute_query("UPDATE fornituras SET cantidad = ? WHERE id = ?", (cantidad, fornitura_id), commit=True)
+def update_fornitura(fornitura_id: int, cantidad: Optional[float] = None, ubicacion: Optional[str] = None, nombre: Optional[str] = None, unidades: Optional[str] = None, coste_unitario: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    updates = []
+    params = []
+    if cantidad is not None:
+        updates.append("cantidad = ?")
+        params.append(float(cantidad))
+    if ubicacion is not None:
+        updates.append("ubicacion = ?")
+        params.append(ubicacion.strip() or "Taller")
+    if nombre is not None:
+        updates.append("nombre = ?")
+        params.append(nombre.strip())
+    if unidades is not None:
+        updates.append("unidades = ?")
+        params.append(unidades.strip())
+    if coste_unitario is not None:
+        updates.append("coste_unitario = ?")
+        params.append(float(coste_unitario))
+        
+    if updates:
+        params.append(fornitura_id)
+        execute_query(f"UPDATE fornituras SET {', '.join(updates)} WHERE id = ?", tuple(params), commit=True)
     return execute_query("SELECT * FROM fornituras WHERE id = ?", (fornitura_id,), fetchone=True)
+
+def add_fornitura(data: Dict[str, Any]) -> Dict[str, Any]:
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        sql = adapt_sql("""
+        INSERT INTO fornituras (nombre, cantidad, unidades, coste_unitario, ubicacion)
+        VALUES (?, ?, ?, ?, ?)
+        """)
+        nombre = str(data.get("nombre", "Nuevo Objeto")).strip() or "Nuevo Objeto"
+        cantidad = float(data.get("cantidad", 0.0))
+        unidades = str(data.get("unidades", "ud")).strip() or "ud"
+        coste_unitario = float(data.get("coste_unitario", 0.10))
+        ubicacion = str(data.get("ubicacion", "Taller")).strip() or "Taller"
+        
+        cur.execute(sql, (nombre, cantidad, unidades, coste_unitario, ubicacion))
+        conn.commit()
+        if IS_POSTGRES:
+            cur.execute("SELECT * FROM fornituras ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+        else:
+            fid = cur.lastrowid
+            cur.execute("SELECT * FROM fornituras WHERE id = ?", (fid,))
+            row = cur.fetchone()
+        return dict(row) if row else {}
+    finally:
+        conn.close()
+
+def delete_fornitura(fornitura_id: int) -> bool:
+    execute_query("DELETE FROM fornituras WHERE id = ?", (fornitura_id,), commit=True)
+    return True
+
+# --- TRANSFERENCIAS Y CUADRES ENTRE SOCIOS ---
+def get_all_transferencias() -> List[Dict[str, Any]]:
+    return execute_query("SELECT * FROM transferencias_socios ORDER BY fecha DESC, id DESC", fetchall=True) or []
+
+def add_transferencia(data: Dict[str, Any]) -> Dict[str, Any]:
+    fecha = str(data.get("fecha") or datetime.today().strftime("%Y-%m-%d")).strip()
+    de_socio = str(data.get("de_socio", "Pablo")).strip()
+    
+    # Normalizar emisor y receptor
+    if de_socio.upper() in ["P", "PABLO"]:
+        de_socio = "Pablo"
+        a_socio = "Javi"
+    elif de_socio.upper() in ["J", "JAVI"]:
+        de_socio = "Javi"
+        a_socio = "Pablo"
+    else:
+        a_socio = "Javi"
+
+    if "a_socio" in data and str(data.get("a_socio", "")).strip():
+        as_val = str(data.get("a_socio", "")).strip()
+        if as_val.upper() in ["P", "PABLO"]:
+            a_socio = "Pablo"
+        elif as_val.upper() in ["J", "JAVI"]:
+            a_socio = "Javi"
+            
+    cantidad = float(data.get("cantidad", 0.0))
+    concepto = str(data.get("concepto") or "Cuadre de cuentas").strip()
+    metodo = str(data.get("metodo") or "Bizum").strip()
+    notas = str(data.get("notas") or "").strip()
+    
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        sql = adapt_sql("""
+        INSERT INTO transferencias_socios (fecha, de_socio, a_socio, cantidad, concepto, metodo, notas)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """)
+        cur.execute(sql, (fecha, de_socio, a_socio, cantidad, concepto, metodo, notas))
+        conn.commit()
+        if IS_POSTGRES:
+            cur.execute("SELECT * FROM transferencias_socios ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+        else:
+            tid = cur.lastrowid
+            cur.execute("SELECT * FROM transferencias_socios WHERE id = ?", (tid,))
+            row = cur.fetchone()
+        return dict(row) if row else {}
+    finally:
+        conn.close()
+
+def delete_transferencia(transferencia_id: int) -> bool:
+    execute_query("DELETE FROM transferencias_socios WHERE id = ?", (transferencia_id,), commit=True)
+    return True
 
 # --- BALANCE Y LIQUIDACIÓN ---
 def get_balance_financiero() -> Dict[str, Any]:
@@ -581,28 +829,63 @@ def get_balance_financiero() -> Dict[str, Any]:
         elif "W" in pg:
             gmaq_empresa += pr
             
+    # Transferencias y Cuadres entre Socios
+    transferencias = execute_query("SELECT * FROM transferencias_socios ORDER BY fecha DESC, id DESC", fetchall=True) or []
+    total_transferido_pablo_a_javi = 0.0
+    total_transferido_javi_a_pablo = 0.0
+    
+    for t in transferencias:
+        cant = float(t.get("cantidad") or 0.0)
+        de = str(t.get("de_socio") or "").strip().upper()
+        if "PABLO" in de or de == "P":
+            total_transferido_pablo_a_javi += cant
+        elif "JAVI" in de or de == "J":
+            total_transferido_javi_a_pablo += cant
+            
+    transferencias_netas = total_transferido_pablo_a_javi - total_transferido_javi_a_pablo
+    total_transferido_acumulado = total_transferido_pablo_a_javi + total_transferido_javi_a_pablo
+
     dinero_neto_pablo = cobrado_pablo - gmat_pablo
     dinero_neto_javi = cobrado_javi - gmat_javi
     
     beneficio_repartible = dinero_neto_pablo + dinero_neto_javi
     cuota_50_50 = beneficio_repartible / 2.0
     
+    # Diferencia teórica antes de transferencias
     diferencia = dinero_neto_pablo - cuota_50_50
-    if diferencia > 0.01:
+
+    # Saldo pendiente real tras considerar las transferencias ya realizadas
+    # Si diferencia > 0, Pablo debía dinero a Javi. Restamos lo que Pablo ya transfirió a Javi (neto).
+    saldo_pendiente_pablo = diferencia - transferencias_netas
+    
+    # Dinero real en mano tras transferencias
+    dinero_real_pablo = round(dinero_neto_pablo - transferencias_netas, 2)
+    dinero_real_javi = round(dinero_neto_javi + transferencias_netas, 2)
+
+    if saldo_pendiente_pablo > 0.01:
         quien_debe = "Pablo"
         a_quien = "Javi"
-        cantidad_a_transferir = round(diferencia, 2)
-        mensaje_liquidacion = f"Pablo debe transferir a Javi {cantidad_a_transferir:.2f} € para igualar beneficios y compensar materiales."
-    elif diferencia < -0.01:
+        cantidad_a_transferir = round(saldo_pendiente_pablo, 2)
+        if total_transferido_acumulado > 0:
+            mensaje_liquidacion = f"Pablo debe transferir a Javi {cantidad_a_transferir:.2f} € pendientes para cuadrar cuentas (ya se han compensado {total_transferido_pablo_a_javi:.2f} €)."
+        else:
+            mensaje_liquidacion = f"Pablo debe transferir a Javi {cantidad_a_transferir:.2f} € para igualar beneficios y compensar materiales."
+    elif saldo_pendiente_pablo < -0.01:
         quien_debe = "Javi"
         a_quien = "Pablo"
-        cantidad_a_transferir = round(abs(diferencia), 2)
-        mensaje_liquidacion = f"Javi debe transferir a Pablo {cantidad_a_transferir:.2f} € para igualar beneficios y compensar materiales."
+        cantidad_a_transferir = round(abs(saldo_pendiente_pablo), 2)
+        if total_transferido_acumulado > 0:
+            mensaje_liquidacion = f"Javi debe transferir a Pablo {cantidad_a_transferir:.2f} € pendientes para cuadrar cuentas (ya se han compensado {total_transferido_javi_a_pablo:.2f} €)."
+        else:
+            mensaje_liquidacion = f"Javi debe transferir a Pablo {cantidad_a_transferir:.2f} € para igualar beneficios y compensar materiales."
     else:
         quien_debe = None
         a_quien = None
         cantidad_a_transferir = 0.0
-        mensaje_liquidacion = "¡Cuentas al día! Ambos socios están exactamente al 50% de beneficios netos."
+        if total_transferido_acumulado > 0:
+            mensaje_liquidacion = f"¡Cuentas al día! Tras compensar {total_transferido_acumulado:.2f} €, ambos socios están exactamente al 50% de beneficios."
+        else:
+            mensaje_liquidacion = "¡Cuentas al día! Ambos socios están exactamente al 50% de beneficios netos."
         
     return {
         "ingresos": {
@@ -633,14 +916,22 @@ def get_balance_financiero() -> Dict[str, Any]:
         "liquidacion": {
             "dinero_neto_pablo": round(dinero_neto_pablo, 2),
             "dinero_neto_javi": round(dinero_neto_javi, 2),
+            "dinero_real_pablo": dinero_real_pablo,
+            "dinero_real_javi": dinero_real_javi,
             "beneficio_neto_total": round(beneficio_repartible, 2),
             "cuota_ideal_cada_uno": round(cuota_50_50, 2),
+            "diferencia_teorica": round(diferencia, 2),
+            "total_transferido_pablo_a_javi": round(total_transferido_pablo_a_javi, 2),
+            "total_transferido_javi_a_pablo": round(total_transferido_javi_a_pablo, 2),
+            "transferencias_netas": round(transferencias_netas, 2),
+            "total_transferido_acumulado": round(total_transferido_acumulado, 2),
             "quien_debe": quien_debe,
             "a_quien": a_quien,
             "cantidad_a_transferir": cantidad_a_transferir,
             "mensaje": mensaje_liquidacion
         },
-        "pedidos_pendientes": pedidos_pendientes_lista
+        "pedidos_pendientes": pedidos_pendientes_lista,
+        "transferencias": transferencias
     }
 
 # --- PROYECTOS CALCULADORA GUARDADOS ---
