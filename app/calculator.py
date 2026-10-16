@@ -349,6 +349,7 @@ def _parse_time_to_minutes(val: str) -> float:
 def _parse_gcode_text(text: str) -> Dict[str, Any]:
     filamentos_g: List[float] = []
     colores_hex: List[str] = []
+    extruder_colores_hex: List[str] = []
     tipos_mat: List[str] = []
     minutos = 0.0
     total_g_direct = 0.0
@@ -358,32 +359,40 @@ def _parse_gcode_text(text: str) -> Dict[str, Any]:
         if not line_s.startswith(";"):
             continue
 
-        # Gramos por extrusor/filamento: ; filament used [g] = 12.34, 5.67
-        m_g = re.match(r"^;\s*filament used \[g\]\s*=\s*(.+)$", line_s, re.IGNORECASE)
+        # Gramos por extrusor/filamento:
+        # ; filament used [g] = 12.34, 5.67  O  ; total filament weight [g] : 3.25,0.30
+        m_g = re.match(r"^;\s*(?:total\s+)?filament\s+(?:used|weight)\s*\[g\]\s*[:=]\s*(.+)$", line_s, re.IGNORECASE)
         if m_g:
             parts = [p.strip() for p in re.split(r"[,;]", m_g.group(1)) if p.strip()]
             try:
-                filamentos_g = [float(x) for x in parts]
+                parsed_list = [float(x) for x in parts]
+                if len(parsed_list) > 1 or not filamentos_g:
+                    filamentos_g = parsed_list
             except ValueError:
                 pass
 
-        m_tot_g = re.match(r"^;\s*total filament used \[g\]\s*=\s*([\d\.]+)", line_s, re.IGNORECASE)
+        m_tot_g = re.match(r"^;\s*total\s+filament\s+(?:used|weight)\s*\[g\]\s*[:=]\s*([\d\.]+)\s*$", line_s, re.IGNORECASE)
         if m_tot_g:
             try:
                 total_g_direct = float(m_tot_g.group(1))
             except ValueError:
                 pass
 
-        # Colores: ; filament_colour = #FF0000;#00FF00 o ; extruder_colour = ...
-        m_col = re.match(r"^;\s*(?:filament_colour|extruder_colour)\s*=\s*(.+)$", line_s, re.IGNORECASE)
-        if m_col and not colores_hex:
-            parts = [p.strip() for p in re.split(r"[;,]", m_col.group(1)) if p.strip()]
-            colores_hex = [_normalize_hex(p) for p in parts]
+        # Priorizar filament_colour sobre extruder_colour
+        m_fcol = re.match(r"^;\s*filament_colour\s*[:=]\s*(.+)$", line_s, re.IGNORECASE)
+        if m_fcol and not colores_hex:
+            parts = [p.strip().strip('"') for p in re.split(r"[;,]", m_fcol.group(1)) if p.strip()]
+            colores_hex = [_normalize_hex(p) for p in parts if p]
+
+        m_ecol = re.match(r"^;\s*extruder_colour\s*[:=]\s*(.+)$", line_s, re.IGNORECASE)
+        if m_ecol and not extruder_colores_hex:
+            parts = [p.strip().strip('"') for p in re.split(r"[;,]", m_ecol.group(1)) if p.strip()]
+            extruder_colores_hex = [_normalize_hex(p) for p in parts if p]
 
         # Tipos: ; filament_type = PLA;PLA;PETG
-        m_type = re.match(r"^;\s*filament_type\s*=\s*(.+)$", line_s, re.IGNORECASE)
+        m_type = re.match(r"^;\s*filament_type\s*[:=]\s*(.+)$", line_s, re.IGNORECASE)
         if m_type and not tipos_mat:
-            tipos_mat = [p.strip() for p in re.split(r"[;,]", m_type.group(1)) if p.strip()]
+            tipos_mat = [p.strip().strip('"') for p in re.split(r"[;,]", m_type.group(1)) if p.strip()]
 
         # Tiempo de impresión (Bambu / Orca / Prusa / Cura)
         if "total estimated time:" in line_s.lower():
@@ -396,6 +405,9 @@ def _parse_gcode_text(text: str) -> Dict[str, Any]:
                 minutos = _parse_time_to_minutes(parts[1])
         elif line_s.upper().startswith(";TIME:") and minutos == 0.0:
             minutos = _parse_time_to_minutes(line_s.split(":", 1)[1])
+
+    if not colores_hex and extruder_colores_hex:
+        colores_hex = extruder_colores_hex
 
     filamentos = []
     for idx, g in enumerate(filamentos_g):
@@ -422,57 +434,310 @@ def _parse_gcode_text(text: str) -> Dict[str, Any]:
         "minutos": minutos
     }
 
-def _calcular_volumen_malla_3mf(zf: zipfile.ZipFile) -> Dict[str, Any]:
-    """Calcula el volumen real en cm³ y nº de objetos a partir de la malla 3D si el .3mf aún no está laminado."""
-    total_vol_mm3 = 0.0
-    objetos_count = 0
 
-    model_files = [n for n in zf.namelist() if n.lower().endswith(".model")]
-    for mf in model_files:
+def _decode_bambu_paint_extruder(paint_str: str, default_ext: int) -> int:
+    """Decodifica el atributo paint_color / mmu_segmentation de Bambu Studio / PrusaSlicer."""
+    if not paint_str:
+        return default_ext
+    s = paint_str.strip().upper()
+    if s == "4":
+        return 1
+    if s == "8":
+        return 2
+    if s in ("C", "0C"):
+        return 3
+    if s == "1C":
+        return 4
+    if s == "2C":
+        return 5
+    # Si es un árbol subdividido largo, contamos los nibbles de pintura
+    counts: Dict[int, int] = {}
+    for ch in s:
+        if ch == "4":
+            counts[1] = counts.get(1, 0) + 1
+        elif ch == "8":
+            counts[2] = counts.get(2, 0) + 1
+        elif ch == "C":
+            counts[3] = counts.get(3, 0) + 1
+    if counts:
+        return max(counts.items(), key=lambda kv: kv[1])[0]
+    return default_ext
+
+
+def _estimar_desde_3mf_sin_laminar(zf: zipfile.ZipFile) -> Dict[str, Any]:
+    """
+    Analiza un proyecto .3mf de Bambu Studio / OrcaSlicer aunque no haya sido exportado como .gcode.3mf:
+    - Lee project_settings.config (colores, tipos, densidades, soporte, torre de purga, relleno).
+    - Lee model_settings.config y 3dmodel.model (piezas en placa, asignación de extrusor por objeto/parte).
+    - Calcula el volumen 3D exacto por cada extrusor/color (incluyendo pintura MMU) y estima modelo + soporte + purga/torre.
+    """
+    names = zf.namelist()
+    cfg_colors: List[str] = []
+    cfg_types: List[str] = []
+    cfg_densities: List[float] = []
+    enable_support = False
+    enable_prime_tower = True
+    infill_ratio = 0.15
+    layer_height = 0.2
+
+    proj_cfg = [n for n in names if n.lower().endswith("project_settings.config")]
+    if proj_cfg:
         try:
-            raw_xml = zf.read(mf)
-            root = ET.fromstring(raw_xml)
-            for elem in root.iter():
-                tag = elem.tag.split("}")[-1].lower()
-                if tag == "mesh":
-                    objetos_count += 1
-                    verts = []
-                    v_parent = None
-                    t_parent = None
-                    for child in elem:
-                        ctag = child.tag.split("}")[-1].lower()
-                        if ctag == "vertices":
-                            v_parent = child
-                        elif ctag == "triangles":
-                            t_parent = child
-                    if v_parent is not None and t_parent is not None:
-                        for v in v_parent:
-                            verts.append((
-                                float(v.attrib.get("x", 0.0)),
-                                float(v.attrib.get("y", 0.0)),
-                                float(v.attrib.get("z", 0.0))
-                            ))
-                        mesh_vol = 0.0
-                        for t in t_parent:
-                            i1 = int(t.attrib.get("v1", 0))
-                            i2 = int(t.attrib.get("v2", 0))
-                            i3 = int(t.attrib.get("v3", 0))
-                            if i1 < len(verts) and i2 < len(verts) and i3 < len(verts):
-                                p1, p2, p3 = verts[i1], verts[i2], verts[i3]
-                                # Volumen signado del tetraedro
-                                v321 = p3[0] * p2[1] * p1[2]
-                                v231 = p2[0] * p3[1] * p1[2]
-                                v312 = p3[0] * p1[1] * p2[2]
-                                v132 = p1[0] * p3[1] * p2[2]
-                                v213 = p2[0] * p1[1] * p3[2]
-                                v123 = p1[0] * p2[1] * p3[2]
-                                mesh_vol += (1.0 / 6.0) * (-v321 + v231 + v312 - v132 - v213 + v123)
-                        total_vol_mm3 += abs(mesh_vol)
+            jdata = json.loads(zf.read(proj_cfg[0]).decode("utf-8", errors="ignore"))
+            cfg_colors = [_normalize_hex(c) for c in jdata.get("filament_colour", []) if c]
+            cfg_types = [str(t) for t in jdata.get("filament_type", []) if t]
+            for d in jdata.get("filament_density", []):
+                try:
+                    cfg_densities.append(float(d))
+                except Exception:
+                    cfg_densities.append(1.24)
+            enable_support = str(jdata.get("enable_support", "0")) in ("1", "true", "True")
+            enable_prime_tower = str(jdata.get("enable_prime_tower", "1")) in ("1", "true", "True")
+            inf_str = str(jdata.get("sparse_infill_density", "15%")).replace("%", "").strip()
+            try:
+                infill_ratio = max(0.0, min(1.0, float(inf_str) / 100.0))
+            except Exception:
+                infill_ratio = 0.15
+            try:
+                layer_height = float(jdata.get("layer_height", 0.2) or 0.2)
+            except Exception:
+                layer_height = 0.2
+        except Exception:
+            pass
+
+    # 1. Leer model_settings.config para saber qué extrusor usa cada (object_id, part_id) y cuántas instancias hay en la placa
+    obj_default_ext: Dict[str, int] = {}
+    part_ext_map: Dict[tuple, int] = {}
+    part_subtype_map: Dict[tuple, str] = {}
+    plate_instance_counts: Dict[str, int] = {}
+
+    model_cfg_list = [n for n in names if n.lower().endswith("model_settings.config")]
+    if model_cfg_list:
+        try:
+            ms_root = ET.fromstring(zf.read(model_cfg_list[0]))
+            for obj_el in ms_root.findall(".//object"):
+                oid = str(obj_el.attrib.get("id", ""))
+                o_ext = 1
+                for m in obj_el.findall("metadata"):
+                    if m.attrib.get("key") == "extruder":
+                        try:
+                            o_ext = max(1, int(m.attrib.get("value", "1")))
+                        except ValueError:
+                            o_ext = 1
+                obj_default_ext[oid] = o_ext
+                for part_el in obj_el.findall("part"):
+                    pid = str(part_el.attrib.get("id", ""))
+                    subtype = str(part_el.attrib.get("subtype", "normal_part"))
+                    part_subtype_map[(oid, pid)] = subtype
+                    p_ext = o_ext
+                    for m in part_el.findall("metadata"):
+                        if m.attrib.get("key") == "extruder":
+                            try:
+                                p_ext = max(1, int(m.attrib.get("value", str(o_ext))))
+                            except ValueError:
+                                p_ext = o_ext
+                    part_ext_map[(oid, pid)] = p_ext
+
+            # Contar instancias en la primera placa con instancias
+            for plate_el in ms_root.findall(".//plate"):
+                insts = plate_el.findall("model_instance")
+                if insts:
+                    for inst in insts:
+                        for m in inst.findall("metadata"):
+                            if m.attrib.get("key") == "object_id":
+                                oid = str(m.attrib.get("value", ""))
+                                plate_instance_counts[oid] = plate_instance_counts.get(oid, 0) + 1
+                    break
+        except Exception:
+            pass
+
+    # 2. Cargar mallas de todos los archivos .model (indexadas por (ruta_normalizada, object_id))
+    # Cada entrada guarda: {"vol_by_paint": {ext_or_0: vol_mm3}, "z_span": float}
+    meshes_data: Dict[tuple, Dict[str, Any]] = {}
+    top_components: Dict[str, List[ tuple ]] = {}  # top_oid -> [(sub_path, sub_oid)]
+    build_counts: Dict[str, int] = {}
+
+    model_files = [n for n in names if n.lower().endswith(".model")]
+    for mf in model_files:
+        norm_path = "/" + mf.lstrip("/")
+        try:
+            root = ET.fromstring(zf.read(mf))
+            # Leer build items si es 3dmodel.model
+            for item_el in root.iter():
+                itag = item_el.tag.split("}")[-1].lower()
+                if itag == "item":
+                    printable = item_el.attrib.get("printable", "1")
+                    if str(printable) not in ("0", "false", "False"):
+                        boid = str(item_el.attrib.get("objectid", ""))
+                        if boid:
+                            build_counts[boid] = build_counts.get(boid, 0) + 1
+
+            for obj_el in root.iter():
+                otag = obj_el.tag.split("}")[-1].lower()
+                if otag != "object":
+                    continue
+                oid = str(obj_el.attrib.get("id", ""))
+                for child in obj_el:
+                    ctag = child.tag.split("}")[-1].lower()
+                    if ctag == "components":
+                        comp_list = []
+                        for comp in child:
+                            if comp.tag.split("}")[-1].lower() == "component":
+                                sub_oid = str(comp.attrib.get("objectid", ""))
+                                sub_path = norm_path
+                                for k, v in comp.attrib.items():
+                                    if k.split("}")[-1].lower() == "path":
+                                        sub_path = "/" + str(v).lstrip("/")
+                                comp_list.append((sub_path, sub_oid))
+                        if comp_list:
+                            top_components[oid] = comp_list
+                    elif ctag == "mesh":
+                        v_parent = None
+                        t_parent = None
+                        for mchild in child:
+                            mctag = mchild.tag.split("}")[-1].lower()
+                            if mctag == "vertices":
+                                v_parent = mchild
+                            elif mctag == "triangles":
+                                t_parent = mchild
+                        if v_parent is not None and t_parent is not None:
+                            verts = []
+                            min_z = float("inf")
+                            max_z = float("-inf")
+                            for v in v_parent:
+                                x = float(v.attrib.get("x", 0.0))
+                                y = float(v.attrib.get("y", 0.0))
+                                z = float(v.attrib.get("z", 0.0))
+                                verts.append((x, y, z))
+                                if z < min_z:
+                                    min_z = z
+                                if z > max_z:
+                                    max_z = z
+                            vol_by_paint: Dict[int, float] = {}
+                            for t in t_parent:
+                                i1 = int(t.attrib.get("v1", 0))
+                                i2 = int(t.attrib.get("v2", 0))
+                                i3 = int(t.attrib.get("v3", 0))
+                                if i1 < len(verts) and i2 < len(verts) and i3 < len(verts):
+                                    p1, p2, p3 = verts[i1], verts[i2], verts[i3]
+                                    v321 = p3[0] * p2[1] * p1[2]
+                                    v231 = p2[0] * p3[1] * p1[2]
+                                    v312 = p3[0] * p1[1] * p2[2]
+                                    v132 = p1[0] * p3[1] * p2[2]
+                                    v213 = p2[0] * p1[1] * p3[2]
+                                    v123 = p1[0] * p2[1] * p3[2]
+                                    t_vol = (1.0 / 6.0) * (-v321 + v231 + v312 - v132 - v213 + v123)
+                                    paint_attr = t.attrib.get("paint_color") or t.attrib.get("mmu_segmentation") or ""
+                                    p_ext = _decode_bambu_paint_extruder(paint_attr, 0) if paint_attr else 0
+                                    vol_by_paint[p_ext] = vol_by_paint.get(p_ext, 0.0) + t_vol
+                            z_span = max(0.0, max_z - min_z) if max_z > min_z else 0.0
+                            meshes_data[(norm_path, oid)] = {
+                                "vol_by_paint": {k: abs(val) for k, val in vol_by_paint.items()},
+                                "z_span": z_span
+                            }
         except Exception:
             continue
 
-    vol_cm3 = total_vol_mm3 / 1000.0
-    return {"volumen_cm3": round(vol_cm3, 2), "objetos": max(1, objetos_count)}
+    active_instances = plate_instance_counts if plate_instance_counts else build_counts
+    if not active_instances and top_components:
+        active_instances = {oid: 1 for oid in top_components}
+
+    ext_vol_mm3: Dict[int, float] = {}
+    ext_max_z_span: Dict[int, float] = {}
+    total_piezas = sum(active_instances.values()) if active_instances else 1
+
+    if active_instances and top_components:
+        for top_oid, inst_count in active_instances.items():
+            def_ext = obj_default_ext.get(top_oid, 1)
+            for sub_path, sub_oid in top_components.get(top_oid, []):
+                subtype = part_subtype_map.get((top_oid, sub_oid), "normal_part")
+                if subtype in ("negative_part", "modifier_part", "support_blocker", "support_enforcer"):
+                    continue
+                part_ext = part_ext_map.get((top_oid, sub_oid), def_ext)
+                mdata = meshes_data.get((sub_path, sub_oid))
+                if not mdata:
+                    continue
+                z_sp = mdata["z_span"]
+                for p_ext, v_mm3 in mdata["vol_by_paint"].items():
+                    real_ext = p_ext if p_ext > 0 else part_ext
+                    ext_vol_mm3[real_ext] = ext_vol_mm3.get(real_ext, 0.0) + (v_mm3 * inst_count)
+                    ext_max_z_span[real_ext] = max(ext_max_z_span.get(real_ext, 0.0), z_sp)
+    else:
+        # Fallback si las mallas están directamente sin components
+        for (mpath, moid), mdata in meshes_data.items():
+            inst_count = active_instances.get(moid, 1)
+            def_ext = obj_default_ext.get(moid, part_ext_map.get((moid, moid), 1))
+            z_sp = mdata["z_span"]
+            for p_ext, v_mm3 in mdata["vol_by_paint"].items():
+                real_ext = p_ext if p_ext > 0 else def_ext
+                ext_vol_mm3[real_ext] = ext_vol_mm3.get(real_ext, 0.0) + (v_mm3 * inst_count)
+                ext_max_z_span[real_ext] = max(ext_max_z_span.get(real_ext, 0.0), z_sp)
+
+    # Convertir volúmenes (mm³ -> cm³ -> gramos reales con paredes/relleno, soportes y torre de purga)
+    active_exts = sorted(k for k, v in ext_vol_mm3.items() if v > 1.0)
+    if not active_exts:
+        active_exts = [1]
+        ext_vol_mm3[1] = 1000.0
+        ext_max_z_span[1] = 10.0
+
+    max_height_mm = max(ext_max_z_span.values()) if ext_max_z_span else 10.0
+    is_multicolor = len(active_exts) > 1
+
+    filamentos_est = []
+    total_swaps = 0
+
+    for idx_pos, ext_id in enumerate(active_exts):
+        vol_cm3 = ext_vol_mm3.get(ext_id, 0.0) / 1000.0
+        dens = cfg_densities[ext_id - 1] if (ext_id - 1) < len(cfg_densities) else 1.25
+        c_hex = cfg_colors[ext_id - 1] if (ext_id - 1) < len(cfg_colors) else "#3b82f6"
+        t_mat = cfg_types[ext_id - 1] if (ext_id - 1) < len(cfg_types) else "PLA"
+
+        # Piezas pequeñas o detalles (< 1.5 cm³) son casi 100% perímetros/capas sólidas
+        if vol_cm3 < 1.5:
+            eff_factor = 1.0
+        else:
+            # Para piezas grandes, mezcla entre perímetros sólidos (~38%) y relleno sparse
+            eff_factor = 0.38 + (0.62 * infill_ratio)
+        model_g = vol_cm3 * dens * eff_factor
+
+        # Soporte (se asigna al extrusor principal / primero si enable_support está activo)
+        support_g = 0.0
+        if enable_support and idx_pos == 0:
+            support_g = model_g * 0.415
+
+        # Torre de limpieza (Prime Tower) y purga (Flushed) en impresiones multicolor
+        tower_flush_g = 0.0
+        if is_multicolor and enable_prime_tower:
+            if idx_pos == 0:
+                # El extrusor base construye el cuerpo de la torre durante toda la altura + su purga
+                tower_flush_g = max_height_mm * 0.184
+            else:
+                # Los extrusores secundarios purgan en las capas donde intervienen
+                z_sec = ext_max_z_span.get(ext_id, 0.8)
+                swaps = 1 if z_sec <= 1.0 else max(1, int(round(z_sec / max(0.16, layer_height * 2.0))))
+                total_swaps += swaps
+                tower_flush_g = 0.23 * swaps
+
+        total_ext_g = round(max(0.05, model_g + support_g + tower_flush_g), 2)
+        filamentos_est.append({
+            "slicer_id": ext_id,
+            "tipo": t_mat,
+            "color_hex": c_hex,
+            "gramos": total_ext_g
+        })
+
+    total_g_all = sum(f["gramos"] for f in filamentos_est)
+    # Estimación de tiempo realista (preparación/nivelación A1 ~7.5 min + velocidad media + cambios AMS)
+    prep_min = 7.5
+    print_min = total_g_all * 5.3
+    swap_min = (total_swaps * 1.5) if is_multicolor else 0.0
+    minutos_est = round(max(8.0, prep_min + print_min + swap_min), 1)
+
+    return {
+        "filamentos": filamentos_est,
+        "minutos": minutos_est,
+        "objetos": max(1, total_piezas)
+    }
 
 
 def analizar_archivo_slicer(filename: str, content: bytes, stock_items: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -489,7 +754,7 @@ def analizar_archivo_slicer(filename: str, content: bytes, stock_items: List[Dic
             with zipfile.ZipFile(io.BytesIO(content), "r") as zf:
                 names = zf.namelist()
 
-                # 1. Intentar leer Metadata/slice_info.config (Bambu Studio / OrcaSlicer)
+                # 1. Intentar leer Metadata/slice_info.config (Bambu Studio / OrcaSlicer .gcode.3mf)
                 slice_cfg_list = [n for n in names if n.lower().endswith("slice_info.config")]
                 if slice_cfg_list:
                     try:
@@ -521,8 +786,8 @@ def analizar_archivo_slicer(filename: str, content: bytes, stock_items: List[Dic
                 if gcode_files and (not filamentos_detectados or minutos_impresion == 0.0):
                     try:
                         raw_gc = zf.read(gcode_files[0])
-                        if len(raw_gc) > 200000:
-                            sample = (raw_gc[:100000] + b"\n" + raw_gc[-100000:]).decode("utf-8", errors="ignore")
+                        if len(raw_gc) > 250000:
+                            sample = (raw_gc[:125000] + b"\n" + raw_gc[-125000:]).decode("utf-8", errors="ignore")
                         else:
                             sample = raw_gc.decode("utf-8", errors="ignore")
                         parsed_gc = _parse_gcode_text(sample)
@@ -533,41 +798,21 @@ def analizar_archivo_slicer(filename: str, content: bytes, stock_items: List[Dic
                     except Exception:
                         pass
 
-                # 3. Si es un .3mf de geometría sin laminar todavía, estimar desde la malla 3D + project_settings.config
+                # 3. Si es un proyecto .3mf sin G-code incrustado, analizar partes multicolor, pintura MMU, soportes y torre de purga
                 if not filamentos_detectados:
                     es_estimacion_malla = True
-                    cfg_colors = []
-                    cfg_types = []
-                    proj_cfg = [n for n in names if n.lower().endswith("project_settings.config")]
-                    if proj_cfg:
-                        try:
-                            jdata = json.loads(zf.read(proj_cfg[0]).decode("utf-8", errors="ignore"))
-                            cfg_colors = [_normalize_hex(c) for c in jdata.get("filament_colour", []) if c]
-                            cfg_types = [t for t in jdata.get("filament_type", []) if t]
-                        except Exception:
-                            pass
-
-                    mesh_info = _calcular_volumen_malla_3mf(zf)
-                    vol_cm3 = mesh_info["volumen_cm3"]
-                    if piezas_detectadas == 0:
-                        piezas_detectadas = mesh_info["objetos"]
-                    # Densidad efectiva media (paredes + relleno ~55% de 1.24 g/cm³ = 0.68 g/cm³)
-                    gramos_est = max(1.0, round(vol_cm3 * 0.68, 1))
+                    est = _estimar_desde_3mf_sin_laminar(zf)
+                    filamentos_detectados = est["filamentos"]
                     if minutos_impresion == 0.0:
-                        minutos_impresion = max(10.0, round(gramos_est * 2.5, 0))
-
-                    filamentos_detectados.append({
-                        "slicer_id": 1,
-                        "tipo": cfg_types[0] if cfg_types else "PLA",
-                        "color_hex": cfg_colors[0] if cfg_colors else "#3b82f6",
-                        "gramos": gramos_est
-                    })
+                        minutos_impresion = est["minutos"]
+                    if piezas_detectadas == 0:
+                        piezas_detectadas = est["objetos"]
         except zipfile.BadZipFile:
             raise ValueError("El archivo .3mf está dañado o no es un archivo comprimido válido.")
     else:
         # Archivo .gcode directo
         if len(content) > 250000:
-            sample = (content[:120000] + b"\n" + content[-120000:]).decode("utf-8", errors="ignore")
+            sample = (content[:125000] + b"\n" + content[-125000:]).decode("utf-8", errors="ignore")
         else:
             sample = content.decode("utf-8", errors="ignore")
         parsed_gc = _parse_gcode_text(sample)

@@ -685,12 +685,12 @@ function renderFilasColorCalculadora() {
             <div class="flex items-center justify-between md:justify-end gap-3 flex-wrap">
                 <div class="flex items-center gap-1.5">
                     <span class="text-slate-400 text-[11px]">Gramos/cama:</span>
-                    <input type="number" step="0.1" min="0" value="${item.gramos_tirada}" oninput="cambiarGramosFilaColor('${item.id}', this.value)" class="w-20 bg-slate-950 border border-slate-700/80 rounded-lg px-2 py-1 text-white font-mono text-right focus:ring-1 focus:ring-purple-500">
+                    <input type="number" step="0.01" min="0" value="${item.gramos_tirada}" oninput="cambiarGramosFilaColor('${item.id}', this.value)" class="w-20 bg-slate-950 border border-slate-700/80 rounded-lg px-2 py-1 text-white font-mono text-right focus:ring-1 focus:ring-purple-500">
                     <span class="text-slate-400 font-mono text-xs">g</span>
                 </div>
                 <div class="flex items-center gap-2 font-mono text-[11px]">
                     <span class="px-2 py-0.5 rounded-md bg-slate-800 text-purple-300 font-bold border border-slate-700/60" id="badge-total-${item.id}" title="Gramos totales para ${tiradas} tiradas">
-                        Total: ${totalG.toFixed(1)}g
+                        Total: ${Number(totalG.toFixed(2))}g
                     </span>
                     <span class="px-2 py-0.5 rounded-md font-semibold ${suficiente ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/50' : 'bg-red-950/70 text-red-300 border border-red-800/60'}" id="badge-stock-${item.id}">
                         ${suficiente ? `Quedan ${restante.toFixed(0)}g` : `⚠️ Falta (${Math.abs(restante).toFixed(0)}g)`}
@@ -746,7 +746,7 @@ function actualizarCalculosColores(rebuildDOM = false) {
         if (swatch) swatch.style.backgroundColor = mat.color_hex || '#64748b';
 
         const badgeTotal = document.getElementById(`badge-total-${item.id}`);
-        if (badgeTotal) badgeTotal.innerText = `Total: ${totalG.toFixed(1)}g`;
+        if (badgeTotal) badgeTotal.innerText = `Total: ${Number(totalG.toFixed(2))}g`;
 
         const badgeStock = document.getElementById(`badge-stock-${item.id}`);
         if (badgeStock) {
@@ -759,7 +759,7 @@ function actualizarCalculosColores(rebuildDOM = false) {
     const totalEncargoG = sumaGramosTirada * tiradas;
 
     const gTiradaInput = document.getElementById('calc-g-tirada');
-    if (gTiradaInput) gTiradaInput.value = sumaGramosTirada.toFixed(1);
+    if (gTiradaInput) gTiradaInput.value = Number(sumaGramosTirada.toFixed(2));
 
     const coloresInput = document.getElementById('calc-colores');
     if (coloresInput) coloresInput.value = Math.max(1, coloresActivos || calcColoresFilamentos.length);
@@ -768,10 +768,10 @@ function actualizarCalculosColores(rebuildDOM = false) {
     if (precioKgInput) precioKgInput.value = precioMedioKg.toFixed(2);
 
     const sumGEl = document.getElementById('calc-colores-sum-g-tirada');
-    if (sumGEl) sumGEl.innerText = `${sumaGramosTirada.toFixed(1)} g`;
+    if (sumGEl) sumGEl.innerText = `${Number(sumaGramosTirada.toFixed(2))} g`;
 
     const sumTotalEl = document.getElementById('calc-colores-sum-g-total');
-    if (sumTotalEl) sumTotalEl.innerText = `${totalEncargoG.toFixed(1)} g`;
+    if (sumTotalEl) sumTotalEl.innerText = `${Number(totalEncargoG.toFixed(2))} g`;
 
     const avgPrecioEl = document.getElementById('calc-colores-avg-precio');
     if (avgPrecioEl) avgPrecioEl.innerText = `${precioMedioKg.toFixed(2)} €/kg`;
@@ -2058,10 +2058,16 @@ async function procesarArchivoSlicer(file) {
             throw new Error(data.detail || 'No se pudo leer el archivo');
         }
 
-        // Actualizar nombre del proyecto si estaba por defecto
+        // Actualizar nombre del proyecto limpiando signos +
         const tituloEl = document.getElementById('calc-titulo');
         if (tituloEl && data.nombre_proyecto) {
-            tituloEl.value = decodeURIComponent(data.nombre_proyecto);
+            tituloEl.value = decodeURIComponent(data.nombre_proyecto.replace(/\+/g, ' '));
+        }
+
+        // Actualizar piezas por cama si se detectaron objetos en la placa
+        const piezasTiradaEl = document.getElementById('calc-piezas-tirada');
+        if (piezasTiradaEl && data.piezas_detectadas > 0) {
+            piezasTiradaEl.value = data.piezas_detectadas;
         }
 
         // Actualizar tiempo de impresión por tirada
@@ -2075,15 +2081,20 @@ async function procesarArchivoSlicer(file) {
             calcColoresFilamentos = data.filamentos.map((f, idx) => ({
                 id: 'col_' + Date.now() + '_' + idx,
                 stock_id: parseInt(f.stock_match_id || (stockData[0]?.id || 0)),
-                gramos_tirada: parseFloat(f.gramos) || 1.0
+                gramos_tirada: parseFloat(f.gramos) || 0.1
             }));
             renderFilasColorCalculadora();
             actualizarCalculosColores();
         }
 
         if (statusEl) {
-            const notaModo = data.es_estimacion_malla ? ' (Estimado por volumen 3D)' : ' (Datos exactos de laminado)';
-            statusEl.innerHTML = `✅ <strong>${file.name}</strong> cargado${notaModo}: <strong>${data.g_por_tirada}g</strong> en <strong>${data.colores} color(es)</strong> • ⏱️ <strong>${data.tiempo_str}</strong>`;
+            const notaModo = data.es_estimacion_malla
+                ? ' (Calculado desde proyecto 3D + soportes/torre)'
+                : ' (Datos exactos de G-code laminado)';
+            const detalleColores = (data.filamentos || [])
+                .map(f => `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900/90 border border-slate-700 text-[11px]"><span class="w-2.5 h-2.5 rounded-full inline-block border border-white/20" style="background:${f.color_hex}"></span>F${f.slicer_id}: <strong>${f.gramos}g</strong></span>`)
+                .join(' ');
+            statusEl.innerHTML = `✅ <strong>${file.name}</strong>${notaModo}: <strong>${data.g_por_tirada}g</strong> en <strong>${data.colores} color(es)</strong> • ⏱️ <strong>${data.tiempo_str}</strong><div class="mt-1.5 flex flex-wrap gap-1.5">${detalleColores}</div>`;
         }
 
         mostrarNotificacion(`🤖 Archivo importado: ${data.g_por_tirada}g (${data.colores} colores) y ${data.tiempo_str}`);
