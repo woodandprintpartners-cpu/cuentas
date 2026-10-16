@@ -4,7 +4,10 @@ let pedidosData = [];
 let stockData = [];
 let forniturasData = [];
 let balanceData = {};
+let estadisticasData = null;
 let balanceChart = null;
+let evolucionMensualChart = null;
+let stockColoresChart = null;
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
@@ -47,6 +50,7 @@ function switchTab(tabName) {
 
     if (tabName === 'balance') {
         renderBalanceChart();
+        renderEstadisticasCharts();
     }
 }
 
@@ -64,8 +68,15 @@ async function loadAllData() {
 
 async function loadBalance() {
     try {
-        const res = await fetch('/api/balance');
-        balanceData = await res.json();
+        const [resBal, resStats] = await Promise.all([
+            fetch('/api/balance'),
+            fetch('/api/estadisticas')
+        ]);
+        balanceData = await resBal.json();
+        if (resStats.ok) {
+            estadisticasData = await resStats.json();
+            updateEstadisticasUI();
+        }
         updateBalanceUI();
     } catch (e) {
         console.error('Error cargando balance:', e);
@@ -1859,6 +1870,234 @@ function renderBalanceChart() {
     });
 }
 
+// --- PANEL DE RENTABILIDAD Y ESTADÍSTICAS AVANZADAS ---
+function updateEstadisticasUI() {
+    if (!estadisticasData) return;
+    const k = estadisticasData.kpis || {};
+
+    const ticketEl = document.getElementById('stat-ticket-medio');
+    if (ticketEl) ticketEl.innerText = `${(k.ticket_medio || 0).toFixed(2)} €`;
+
+    const piezasEl = document.getElementById('stat-total-piezas');
+    if (piezasEl) piezasEl.innerText = `${k.total_piezas_fabricadas || 0} uds`;
+
+    const margenEl = document.getElementById('stat-margen-pct');
+    if (margenEl) margenEl.innerText = `${(k.margen_neto_pct || 0).toFixed(1)} %`;
+
+    const valorStockEl = document.getElementById('stat-valor-stock');
+    if (valorStockEl) valorStockEl.innerText = `${(k.valor_inventario_eur || 0).toFixed(2)} €`;
+
+    const kgBadgeEl = document.getElementById('stat-kg-totales-badge');
+    if (kgBadgeEl) kgBadgeEl.innerText = `${(k.kg_stock_disponible || 0).toFixed(2)} kg en stock`;
+
+    // Ranking Top 5 Pedidos
+    const topContainer = document.getElementById('top-pedidos-rentables-list');
+    if (topContainer && Array.isArray(estadisticasData.top_pedidos)) {
+        topContainer.innerHTML = '';
+        const medallas = ['🥇', '🥈', '🥉', '4º', '5º'];
+        estadisticasData.top_pedidos.forEach((p, idx) => {
+            const card = document.createElement('div');
+            card.className = 'p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 flex flex-col justify-between space-y-2';
+            const socioTag = p.quien_hace === 'P' ? 'Pablo' : (p.quien_hace === 'J' ? 'Javi' : 'Taller');
+            const socioColor = p.quien_hace === 'P' ? 'text-blue-400' : (p.quien_hace === 'J' ? 'text-emerald-400' : 'text-purple-400');
+            card.innerHTML = `
+                <div>
+                    <div class="flex items-center justify-between text-xs mb-1">
+                        <span class="font-bold text-amber-400">${medallas[idx] || '#' + (idx + 1)} #${p.id}</span>
+                        <span class="text-[10px] font-semibold ${socioColor}">${socioTag}</span>
+                    </div>
+                    <p class="font-bold text-white text-xs truncate" title="${p.titulo}">${p.titulo}</p>
+                    <p class="text-[11px] text-slate-400 truncate">${p.cliente} • ${p.unidades} uds</p>
+                </div>
+                <div class="pt-2 border-t border-slate-800/60 flex items-center justify-between text-xs font-mono">
+                    <span class="text-slate-400">${p.precio_total.toFixed(0)}€</span>
+                    <span class="font-bold text-emerald-400">+${p.beneficio.toFixed(2)}€ neto</span>
+                </div>
+            `;
+            topContainer.appendChild(card);
+        });
+    }
+
+    if (currentTab === 'balance') {
+        renderEstadisticasCharts();
+    }
+}
+
+function renderEstadisticasCharts() {
+    if (!estadisticasData) return;
+
+    // 1. Gráfica de Evolución Mensual
+    const ctxEvo = document.getElementById('chart-evolucion-mensual')?.getContext('2d');
+    if (ctxEvo && Array.isArray(estadisticasData.evolucion_mensual)) {
+        if (evolucionMensualChart) evolucionMensualChart.destroy();
+        const evo = estadisticasData.evolucion_mensual;
+        evolucionMensualChart = new Chart(ctxEvo, {
+            type: 'bar',
+            data: {
+                labels: evo.map(m => m.mes_label),
+                datasets: [
+                    {
+                        label: 'Facturación Total (€)',
+                        data: evo.map(m => m.facturacion),
+                        backgroundColor: 'rgba(99, 102, 241, 0.65)',
+                        borderColor: 'rgb(99, 102, 241)',
+                        borderWidth: 1,
+                        borderRadius: 6
+                    },
+                    {
+                        label: 'Beneficio Neto (€)',
+                        data: evo.map(m => m.beneficio),
+                        backgroundColor: 'rgba(16, 185, 129, 0.75)',
+                        borderColor: 'rgb(16, 185, 129)',
+                        borderWidth: 1,
+                        borderRadius: 6
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { labels: { color: '#cbd5e1', font: { size: 11 } } }
+                },
+                scales: {
+                    x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+                    y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } }
+                }
+            }
+        });
+    }
+
+    // 2. Gráfica de Stock por Colores Reales
+    const ctxCol = document.getElementById('chart-stock-colores')?.getContext('2d');
+    if (ctxCol && Array.isArray(estadisticasData.stock_colores)) {
+        if (stockColoresChart) stockColoresChart.destroy();
+        const topStock = estadisticasData.stock_colores.slice(0, 10);
+        stockColoresChart = new Chart(ctxCol, {
+            type: 'bar',
+            data: {
+                labels: topStock.map(s => s.color),
+                datasets: [
+                    {
+                        label: 'Gramos disponibles (g)',
+                        data: topStock.map(s => s.stock_total_g),
+                        backgroundColor: topStock.map(s => s.color_hex || '#64748b'),
+                        borderColor: 'rgba(255, 255, 255, 0.35)',
+                        borderWidth: 1,
+                        borderRadius: 6
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: { ticks: { color: '#cbd5e1', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+                    y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } }
+                }
+            }
+        });
+    }
+}
+
+// --- LECTOR AUTOMÁTICO DE ARCHIVOS .3MF / .GCODE (BAMBU STUDIO / ORCASLICER) ---
+function handleSlicerDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const dz = document.getElementById('slicer-dropzone');
+    if (dz) dz.classList.add('border-emerald-400', 'bg-emerald-950/30');
+}
+
+function handleSlicerDragLeave(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const dz = document.getElementById('slicer-dropzone');
+    if (dz) dz.classList.remove('border-emerald-400', 'bg-emerald-950/30');
+}
+
+function handleSlicerDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    handleSlicerDragLeave(e);
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        procesarArchivoSlicer(e.dataTransfer.files[0]);
+    }
+}
+
+function handleSlicerFileSelect(e) {
+    if (e.target.files && e.target.files.length > 0) {
+        procesarArchivoSlicer(e.target.files[0]);
+        e.target.value = '';
+    }
+}
+
+async function procesarArchivoSlicer(file) {
+    if (!file) return;
+    const statusEl = document.getElementById('slicer-parse-status');
+    if (statusEl) {
+        statusEl.classList.remove('hidden', 'text-red-400');
+        statusEl.classList.add('text-emerald-300');
+        statusEl.innerText = `⏳ Analizando "${file.name}"...`;
+    }
+
+    try {
+        const res = await fetch('/api/calculadora/analizar-archivo', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/octet-stream',
+                'X-Filename': encodeURIComponent(file.name)
+            },
+            body: file
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.detail || 'No se pudo leer el archivo');
+        }
+
+        // Actualizar nombre del proyecto si estaba por defecto
+        const tituloEl = document.getElementById('calc-titulo');
+        if (tituloEl && data.nombre_proyecto) {
+            tituloEl.value = decodeURIComponent(data.nombre_proyecto);
+        }
+
+        // Actualizar tiempo de impresión por tirada
+        const minEl = document.getElementById('calc-min-tirada-3d');
+        if (minEl && data.min_por_tirada_3d > 0) {
+            minEl.value = Math.round(data.min_por_tirada_3d);
+        }
+
+        // Rellenar automáticamente la lista de colores y filamentos en stock
+        if (Array.isArray(data.filamentos) && data.filamentos.length > 0) {
+            calcColoresFilamentos = data.filamentos.map((f, idx) => ({
+                id: 'col_' + Date.now() + '_' + idx,
+                stock_id: parseInt(f.stock_match_id || (stockData[0]?.id || 0)),
+                gramos_tirada: parseFloat(f.gramos) || 1.0
+            }));
+            renderFilasColorCalculadora();
+            actualizarCalculosColores();
+        }
+
+        if (statusEl) {
+            const notaModo = data.es_estimacion_malla ? ' (Estimado por volumen 3D)' : ' (Datos exactos de laminado)';
+            statusEl.innerHTML = `✅ <strong>${file.name}</strong> cargado${notaModo}: <strong>${data.g_por_tirada}g</strong> en <strong>${data.colores} color(es)</strong> • ⏱️ <strong>${data.tiempo_str}</strong>`;
+        }
+
+        mostrarNotificacion(`🤖 Archivo importado: ${data.g_por_tirada}g (${data.colores} colores) y ${data.tiempo_str}`);
+    } catch (err) {
+        console.error('Error analizando archivo slicer:', err);
+        if (statusEl) {
+            statusEl.classList.remove('hidden', 'text-emerald-300');
+            statusEl.classList.add('text-red-400');
+            statusEl.innerText = `⚠️ ${err.message}`;
+        }
+        alert('Error al leer el archivo: ' + err.message);
+    }
+}
+
 // --- NOTIFICACIONES TOAST ---
 function mostrarNotificacion(mensaje) {
     const toast = document.getElementById('toast-notification');
@@ -1893,12 +2132,22 @@ function updateDbStatusUI() {
     const text = document.getElementById('db-status-text');
     const banner = document.getElementById('db-warning-banner');
 
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
     if (dbStatusData.es_permanente) {
         if (dot) {
             dot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50';
         }
         if (text) text.innerText = 'Nube Permanente (Neon)';
         if (btn) btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors border bg-emerald-950/40 border-emerald-500/30 text-emerald-300 hover:bg-emerald-900/40';
+        if (banner) banner.classList.add('hidden');
+    } else if (isLocalhost) {
+        // En tu PC local, SQLite guarda en database.db en tu disco duro (no se borra nada al reiniciar)
+        if (dot) {
+            dot.className = 'w-2 h-2 rounded-full bg-blue-400 shadow-sm shadow-blue-400/50';
+        }
+        if (text) text.innerText = 'Modo Local (Tu PC)';
+        if (btn) btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors border bg-blue-950/40 border-blue-500/30 text-blue-300 hover:bg-blue-900/40';
         if (banner) banner.classList.add('hidden');
     } else {
         if (dot) {

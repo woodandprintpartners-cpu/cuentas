@@ -967,3 +967,111 @@ def delete_proyecto_calculadora(pid: str) -> bool:
     execute_query("DELETE FROM proyectos_calculadora WHERE id = ?", (pid,), commit=True)
     return True
 
+
+# --- ESTADÍSTICAS AVANZADAS Y RENTABILIDAD ---
+MESES_NOMBRES = {
+    "01": "Ene", "02": "Feb", "03": "Mar", "04": "Abr",
+    "05": "May", "06": "Jun", "07": "Jul", "08": "Ago",
+    "09": "Sep", "10": "Oct", "11": "Nov", "12": "Dic"
+}
+
+def get_estadisticas_avanzadas() -> Dict[str, Any]:
+    pedidos = get_all_pedidos()
+    stock = get_all_stock()
+    fornituras = get_all_fornituras()
+
+    total_pedidos = len(pedidos)
+    total_piezas = sum(float(p.get("unidades") or 0) for p in pedidos)
+    total_facturado = sum(float(p.get("precio_total") or 0) for p in pedidos)
+    total_beneficio = sum(float(p.get("beneficio") or 0) for p in pedidos)
+    ticket_medio = (total_facturado / total_pedidos) if total_pedidos > 0 else 0.0
+    margen_pct = ((total_beneficio / total_facturado) * 100.0) if total_facturado > 0 else 0.0
+
+    # Valor de inventario actual
+    valor_filamentos = sum((float(s.get("stock_total_g") or 0) / 1000.0) * float(s.get("precio_kg_estimado") or 20.0) for s in stock)
+    valor_fornituras = sum(float(f.get("cantidad") or 0) * float(f.get("coste_unitario") or 0) for f in fornituras)
+    kg_stock_total = sum(float(s.get("stock_total_g") or 0) for s in stock) / 1000.0
+
+    # Evolución mensual
+    meses_map: Dict[str, Dict[str, Any]] = {}
+    for p in pedidos:
+        fecha_raw = str(p.get("fecha") or "").strip()
+        if len(fecha_raw) >= 7 and fecha_raw[:4].isdigit() and fecha_raw[5:7].isdigit():
+            ym = fecha_raw[:7]
+            y, m = ym.split("-")
+            label = f"{MESES_NOMBRES.get(m, m)} {y}"
+        else:
+            ym = "0000-00"
+            label = "Base Inicial"
+
+        if ym not in meses_map:
+            meses_map[ym] = {
+                "mes_key": ym,
+                "mes_label": label,
+                "facturacion": 0.0,
+                "beneficio": 0.0,
+                "pedidos": 0,
+                "piezas": 0
+            }
+        meses_map[ym]["facturacion"] = round(meses_map[ym]["facturacion"] + float(p.get("precio_total") or 0), 2)
+        meses_map[ym]["beneficio"] = round(meses_map[ym]["beneficio"] + float(p.get("beneficio") or 0), 2)
+        meses_map[ym]["pedidos"] += 1
+        meses_map[ym]["piezas"] += int(float(p.get("unidades") or 0))
+
+    evolucion_mensual = [meses_map[k] for k in sorted(meses_map.keys())]
+
+    # Top 5 pedidos más rentables
+    pedidos_ordenados = sorted(pedidos, key=lambda x: float(x.get("beneficio") or 0), reverse=True)
+    top_pedidos = [
+        {
+            "id": p.get("id"),
+            "titulo": p.get("titulo"),
+            "cliente": p.get("cliente") or "Particular",
+            "unidades": int(float(p.get("unidades") or 1)),
+            "precio_total": round(float(p.get("precio_total") or 0), 2),
+            "beneficio": round(float(p.get("beneficio") or 0), 2),
+            "quien_hace": p.get("quien_hace") or "J"
+        }
+        for p in pedidos_ordenados[:5]
+    ]
+
+    # Stock por colores (ordenado de mayor a menor gramos disponibles)
+    stock_colores = [
+        {
+            "id": s.get("id"),
+            "nombre": f"{s.get('tipo')} {s.get('color')}",
+            "tipo": s.get("tipo"),
+            "color": s.get("color"),
+            "color_hex": s.get("color_hex") or "#64748b",
+            "stock_total_g": round(float(s.get("stock_total_g") or 0), 0),
+            "pablo_g": round(float(s.get("pablo_g") or 0), 0),
+            "javi_g": round(float(s.get("javi_g") or 0), 0)
+        }
+        for s in sorted(stock, key=lambda x: float(x.get("stock_total_g") or 0), reverse=True)
+    ]
+
+    # Reparto de producción (quién fabrica)
+    prod_javi = sum(float(p.get("precio_total") or 0) for p in pedidos if str(p.get("quien_hace", "")).upper() == "J")
+    prod_pablo = sum(float(p.get("precio_total") or 0) for p in pedidos if str(p.get("quien_hace", "")).upper() == "P")
+    prod_ambos = sum(float(p.get("precio_total") or 0) for p in pedidos if str(p.get("quien_hace", "")).upper() not in ("J", "P"))
+
+    return {
+        "kpis": {
+            "total_pedidos": total_pedidos,
+            "total_piezas_fabricadas": int(total_piezas),
+            "ticket_medio": round(ticket_medio, 2),
+            "margen_neto_pct": round(margen_pct, 1),
+            "valor_inventario_eur": round(valor_filamentos + valor_fornituras, 2),
+            "kg_stock_disponible": round(kg_stock_total, 2)
+        },
+        "evolucion_mensual": evolucion_mensual,
+        "top_pedidos": top_pedidos,
+        "stock_colores": stock_colores,
+        "reparto_produccion": {
+            "javi_eur": round(prod_javi, 2),
+            "pablo_eur": round(prod_pablo, 2),
+            "ambos_eur": round(prod_ambos, 2)
+        }
+    }
+
+
