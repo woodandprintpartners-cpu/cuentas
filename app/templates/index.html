@@ -224,6 +224,55 @@
                                 <input type="number" id="calc-min-tirada-3d" value="120" class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-300">
                             </div>
                         </div>
+
+                        <!-- Desglose de Filamentos y Colores en Stock con Descuento Automático -->
+                        <div class="pt-4 border-t border-slate-800/80 space-y-3">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
+                                        🎨 Colores y Filamentos en Stock
+                                    </span>
+                                    <span class="text-[10px] bg-purple-950/70 text-purple-300 border border-purple-800/60 px-2 py-0.5 rounded-full font-medium">
+                                        Auto-descuento
+                                    </span>
+                                </div>
+                                <button type="button" onclick="agregarFilaColorCalculadora()" class="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                                    Añadir Color
+                                </button>
+                            </div>
+                            <p class="text-[11px] text-slate-400 leading-snug">
+                                Elige el filamento de vuestro stock y los gramos exactos de cada color por tirada (cama). El total de gramos, el nº de colores y el precio medio se ajustan automáticamente, y se descontarán del stock al crear el pedido.
+                            </p>
+
+                            <!-- Lista dinámica de colores añadidos -->
+                            <div id="calc-colores-lista" class="space-y-2">
+                                <!-- Filas renderizadas por JS -->
+                            </div>
+
+                            <!-- Barra de resumen si hay filas -->
+                            <div id="calc-colores-resumen" class="hidden p-3 bg-slate-900/90 rounded-xl border border-purple-900/40 flex flex-wrap items-center justify-between gap-3 text-xs">
+                                <div class="flex items-center gap-4 text-slate-300">
+                                    <div>
+                                        <span class="text-slate-400 block text-[10px]">Tirada (cama):</span>
+                                        <span id="calc-colores-sum-g-tirada" class="font-bold font-mono text-purple-300">0.0 g</span>
+                                    </div>
+                                    <div class="border-l border-slate-700/60 pl-3">
+                                        <span class="text-slate-400 block text-[10px]">Total Encargo:</span>
+                                        <span id="calc-colores-sum-g-total" class="font-bold font-mono text-emerald-400">0.0 g</span>
+                                    </div>
+                                    <div class="border-l border-slate-700/60 pl-3">
+                                        <span class="text-slate-400 block text-[10px]">Precio Medio:</span>
+                                        <span id="calc-colores-avg-precio" class="font-bold font-mono text-blue-300">0.00 €/kg</span>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button type="button" onclick="descontarStockDirectoCalculadora()" class="px-2.5 py-1 bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/50 text-amber-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all" title="Descontar estos gramos de stock inmediatamente sin crear pedido">
+                                        ⚡ Descontar Ahora
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Laser Cutting Accordion Module -->
@@ -808,6 +857,25 @@
                             <option value="W">Cuenta común / Empresa (W)</option>
                         </select>
                     </div>
+                </div>
+                <!-- Desglose de consumo y descuento automático de stock -->
+                <div id="pedido-consumo-materiales-container" class="hidden p-3 bg-slate-900/90 border border-purple-900/40 rounded-xl space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="font-bold text-xs text-purple-300 flex items-center gap-1.5">
+                            <svg class="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                            Consumo de Filamentos (Stock)
+                        </span>
+                        <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                            <input type="checkbox" id="pedido-auto-descontar-stock" checked class="w-3.5 h-3.5 rounded text-emerald-600 bg-slate-950 border-slate-700 focus:ring-emerald-500">
+                            <span class="text-emerald-400 font-medium">Descontar automáticamente</span>
+                        </label>
+                    </div>
+                    <div id="pedido-consumo-materiales-lista" class="space-y-1 text-xs">
+                        <!-- Renderizado dinámicamente con JS -->
+                    </div>
+                    <p class="text-[10px] text-slate-400">
+                        * Se descontará del stock de quien imprima (con desborde inteligente si se agota en su balance).
+                    </p>
                 </div>
                 <div>
                     <label class="block text-slate-400 mb-1">Notas / Observaciones</label>

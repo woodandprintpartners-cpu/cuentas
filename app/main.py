@@ -26,6 +26,7 @@ from app.database import (
     update_stock_item,
     delete_stock_item,
     descontar_stock,
+    descontar_stock_lote,
     get_all_fornituras,
     update_fornitura,
     add_fornitura,
@@ -145,6 +146,13 @@ def api_descontar_stock(datos: dict):
     if not res:
         raise HTTPException(status_code=404, detail="Material no encontrado")
     return res
+
+@app.post("/api/stock/descontar-lote")
+def api_descontar_stock_lote(datos: dict):
+    items = datos.get("items", [])
+    socio = str(datos.get("socio", "W"))
+    res = descontar_stock_lote(items, socio)
+    return {"status": "ok", "descontados": res}
 
 # --- API FORNITURAS ---
 @app.get("/api/fornituras")

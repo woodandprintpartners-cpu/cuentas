@@ -193,12 +193,14 @@ function getCalculadoraFormData() {
             data[id] = (el.type === 'checkbox') ? el.checked : el.value;
         }
     });
+    data['calcColoresFilamentos'] = calcColoresFilamentos;
     return data;
 }
 
 function setCalculadoraFormData(data) {
     if (!data) return;
     Object.keys(data).forEach(id => {
+        if (id === 'calcColoresFilamentos') return;
         const el = document.getElementById(id);
         if (el) {
             if (el.type === 'checkbox') {
@@ -208,6 +210,10 @@ function setCalculadoraFormData(data) {
             }
         }
     });
+    if (Array.isArray(data['calcColoresFilamentos'])) {
+        calcColoresFilamentos = data['calcColoresFilamentos'];
+        renderFilasColorCalculadora();
+    }
     // Toggle accordions
     const laserCheck = document.getElementById('calc-incluir-laser');
     const laserBox = document.getElementById('laser-params-box');
@@ -383,10 +389,16 @@ function initCalculator() {
         const el = document.getElementById(id);
         if (el) {
             el.addEventListener('input', () => {
+                if (id === 'calc-piezas-totales' || id === 'calc-piezas-tirada') {
+                    actualizarCalculosColores();
+                }
                 guardarDraftCalculadora();
                 ejecutarCalculo();
             });
             el.addEventListener('change', () => {
+                if (id === 'calc-piezas-totales' || id === 'calc-piezas-tirada') {
+                    actualizarCalculosColores();
+                }
                 guardarDraftCalculadora();
                 ejecutarCalculo();
             });
@@ -578,6 +590,293 @@ function renderResultadoCalculo(r) {
     }
 }
 
+// --- GESTIÓN DE COLORES Y FILAMENTOS EN CALCULADORA ---
+let calcColoresFilamentos = [];
+let currentPedidoMaterialesConsumo = [];
+
+function agregarFilaColorCalculadora(stockId = null, gramos = 10.0) {
+    if (!stockData || stockData.length === 0) {
+        alert('Cargando catálogo de filamentos... Por favor, inténtalo de nuevo en un segundo.');
+        return;
+    }
+    const defaultStockId = stockId || stockData[0].id;
+    const newId = 'col_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+    calcColoresFilamentos.push({
+        id: newId,
+        stock_id: parseInt(defaultStockId),
+        gramos_tirada: parseFloat(gramos) || 10.0
+    });
+    renderFilasColorCalculadora();
+    actualizarCalculosColores();
+}
+
+function eliminarFilaColorCalculadora(rowId) {
+    calcColoresFilamentos = calcColoresFilamentos.filter(r => r.id !== rowId);
+    renderFilasColorCalculadora();
+    actualizarCalculosColores();
+}
+
+function cambiarMaterialFilaColor(rowId, nuevoStockId) {
+    const row = calcColoresFilamentos.find(r => r.id === rowId);
+    if (!row) return;
+    row.stock_id = parseInt(nuevoStockId);
+    actualizarCalculosColores();
+}
+
+function cambiarGramosFilaColor(rowId, nuevosGramos) {
+    const row = calcColoresFilamentos.find(r => r.id === rowId);
+    if (!row) return;
+    row.gramos_tirada = parseFloat(nuevosGramos) || 0.0;
+    actualizarCalculosColores(false);
+}
+
+function renderFilasColorCalculadora() {
+    const container = document.getElementById('calc-colores-lista');
+    const resumen = document.getElementById('calc-colores-resumen');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (calcColoresFilamentos.length === 0) {
+        if (resumen) resumen.classList.add('hidden');
+        return;
+    }
+
+    if (resumen) resumen.classList.remove('hidden');
+
+    const piezasTotales = parseInt(document.getElementById('calc-piezas-totales')?.value) || 1;
+    const piezasTirada = parseInt(document.getElementById('calc-piezas-tirada')?.value) || 1;
+    const tiradas = Math.max(1, Math.ceil(piezasTotales / piezasTirada));
+
+    calcColoresFilamentos.forEach((item) => {
+        const mat = stockData.find(s => s.id === item.stock_id) || stockData[0] || {};
+        const totalG = (parseFloat(item.gramos_tirada) || 0) * tiradas;
+        const disponible = mat.stock_total_g || 0;
+        const restante = disponible - totalG;
+        const suficiente = restante >= 0;
+        const colorHex = mat.color_hex || '#64748b';
+
+        const rowEl = document.createElement('div');
+        rowEl.id = `fila-${item.id}`;
+        rowEl.className = 'p-2.5 bg-slate-900/80 border border-slate-800 rounded-xl flex flex-col md:flex-row items-stretch md:items-center gap-2.5 text-xs transition-all';
+
+        rowEl.innerHTML = `
+            <div class="flex items-center gap-2 flex-1 min-w-[200px]">
+                <span class="w-4 h-4 rounded-full border border-white/20 flex-shrink-0 shadow-sm" style="background-color: ${colorHex};" id="swatch-${item.id}"></span>
+                <select onchange="cambiarMaterialFilaColor('${item.id}', this.value)" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-white font-medium focus:ring-1 focus:ring-purple-500 select-material-row">
+                    ${stockData.map(s => `
+                        <option value="${s.id}" ${s.id === item.stock_id ? 'selected' : ''}>
+                            ${s.tipo} - ${s.color} (Stock: ${s.stock_total_g.toFixed(0)}g | ${s.precio_kg_estimado}€/kg)
+                        </option>
+                    `).join('')}
+                </select>
+            </div>
+            <div class="flex items-center justify-between md:justify-end gap-3 flex-wrap">
+                <div class="flex items-center gap-1.5">
+                    <span class="text-slate-400 text-[11px]">Gramos/cama:</span>
+                    <input type="number" step="0.1" min="0" value="${item.gramos_tirada}" oninput="cambiarGramosFilaColor('${item.id}', this.value)" class="w-20 bg-slate-950 border border-slate-700/80 rounded-lg px-2 py-1 text-white font-mono text-right focus:ring-1 focus:ring-purple-500">
+                    <span class="text-slate-400 font-mono text-xs">g</span>
+                </div>
+                <div class="flex items-center gap-2 font-mono text-[11px]">
+                    <span class="px-2 py-0.5 rounded-md bg-slate-800 text-purple-300 font-bold border border-slate-700/60" id="badge-total-${item.id}" title="Gramos totales para ${tiradas} tiradas">
+                        Total: ${totalG.toFixed(1)}g
+                    </span>
+                    <span class="px-2 py-0.5 rounded-md font-semibold ${suficiente ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/50' : 'bg-red-950/70 text-red-300 border border-red-800/60'}" id="badge-stock-${item.id}">
+                        ${suficiente ? `Quedan ${restante.toFixed(0)}g` : `⚠️ Falta (${Math.abs(restante).toFixed(0)}g)`}
+                    </span>
+                </div>
+                <button type="button" onclick="eliminarFilaColorCalculadora('${item.id}')" class="text-slate-400 hover:text-red-400 px-2 py-1 bg-slate-800/60 hover:bg-red-950/40 rounded-lg border border-slate-700/60 transition-colors" title="Eliminar este color">
+                    🗑️
+                </button>
+            </div>
+        `;
+        container.appendChild(rowEl);
+    });
+}
+
+function actualizarCalculosColores(rebuildDOM = false) {
+    if (rebuildDOM) {
+        renderFilasColorCalculadora();
+    }
+
+    const container = document.getElementById('calc-colores-lista');
+    const resumen = document.getElementById('calc-colores-resumen');
+    if (!container) return;
+
+    if (calcColoresFilamentos.length === 0) {
+        if (resumen) resumen.classList.add('hidden');
+        return;
+    }
+
+    if (resumen) resumen.classList.remove('hidden');
+
+    const piezasTotales = parseInt(document.getElementById('calc-piezas-totales')?.value) || 1;
+    const piezasTirada = parseInt(document.getElementById('calc-piezas-tirada')?.value) || 1;
+    const tiradas = Math.max(1, Math.ceil(piezasTotales / piezasTirada));
+
+    let sumaGramosTirada = 0;
+    let sumaCosteMaterialTirada = 0;
+    let coloresActivos = 0;
+
+    calcColoresFilamentos.forEach(item => {
+        const mat = stockData.find(s => s.id === item.stock_id) || stockData[0] || {};
+        const gTirada = parseFloat(item.gramos_tirada) || 0.0;
+        const totalG = gTirada * tiradas;
+        const disponible = mat.stock_total_g || 0;
+        const restante = disponible - totalG;
+        const suficiente = restante >= 0;
+
+        sumaGramosTirada += gTirada;
+        if (gTirada > 0) coloresActivos++;
+        const precioKg = mat.precio_kg_estimado || 20.0;
+        sumaCosteMaterialTirada += gTirada * precioKg;
+
+        const swatch = document.getElementById(`swatch-${item.id}`);
+        if (swatch) swatch.style.backgroundColor = mat.color_hex || '#64748b';
+
+        const badgeTotal = document.getElementById(`badge-total-${item.id}`);
+        if (badgeTotal) badgeTotal.innerText = `Total: ${totalG.toFixed(1)}g`;
+
+        const badgeStock = document.getElementById(`badge-stock-${item.id}`);
+        if (badgeStock) {
+            badgeStock.innerText = suficiente ? `Quedan ${restante.toFixed(0)}g` : `⚠️ Falta (${Math.abs(restante).toFixed(0)}g)`;
+            badgeStock.className = `px-2 py-0.5 rounded-md font-semibold ${suficiente ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/50' : 'bg-red-950/70 text-red-300 border border-red-800/60'}`;
+        }
+    });
+
+    const precioMedioKg = sumaGramosTirada > 0 ? (sumaCosteMaterialTirada / sumaGramosTirada) : 20.0;
+    const totalEncargoG = sumaGramosTirada * tiradas;
+
+    const gTiradaInput = document.getElementById('calc-g-tirada');
+    if (gTiradaInput) gTiradaInput.value = sumaGramosTirada.toFixed(1);
+
+    const coloresInput = document.getElementById('calc-colores');
+    if (coloresInput) coloresInput.value = Math.max(1, coloresActivos || calcColoresFilamentos.length);
+
+    const precioKgInput = document.getElementById('calc-precio-kg');
+    if (precioKgInput) precioKgInput.value = precioMedioKg.toFixed(2);
+
+    const sumGEl = document.getElementById('calc-colores-sum-g-tirada');
+    if (sumGEl) sumGEl.innerText = `${sumaGramosTirada.toFixed(1)} g`;
+
+    const sumTotalEl = document.getElementById('calc-colores-sum-g-total');
+    if (sumTotalEl) sumTotalEl.innerText = `${totalEncargoG.toFixed(1)} g`;
+
+    const avgPrecioEl = document.getElementById('calc-colores-avg-precio');
+    if (avgPrecioEl) avgPrecioEl.innerText = `${precioMedioKg.toFixed(2)} €/kg`;
+
+    guardarDraftCalculadora();
+    ejecutarCalculo();
+}
+
+function actualizarSelectsFilamentosCalculadora() {
+    calcColoresFilamentos.forEach(item => {
+        const rowEl = document.getElementById(`fila-${item.id}`);
+        if (!rowEl) return;
+        const sel = rowEl.querySelector('.select-material-row');
+        if (!sel) return;
+        const currentVal = item.stock_id;
+        sel.innerHTML = stockData.map(s => `
+            <option value="${s.id}" ${s.id === currentVal ? 'selected' : ''}>
+                ${s.tipo} - ${s.color} (Stock: ${s.stock_total_g.toFixed(0)}g | ${s.precio_kg_estimado}€/kg)
+            </option>
+        `).join('');
+    });
+    actualizarCalculosColores();
+}
+
+async function descontarStockDirectoCalculadora() {
+    if (calcColoresFilamentos.length === 0) {
+        alert('Añade al menos un filamento o color para descontar del stock.');
+        return;
+    }
+
+    const piezasTotales = parseInt(document.getElementById('calc-piezas-totales')?.value) || 1;
+    const piezasTirada = parseInt(document.getElementById('calc-piezas-tirada')?.value) || 1;
+    const tiradas = Math.max(1, Math.ceil(piezasTotales / piezasTirada));
+
+    const items = calcColoresFilamentos.map(it => {
+        const mat = stockData.find(s => s.id === it.stock_id);
+        const gramosTotal = (parseFloat(it.gramos_tirada) || 0) * tiradas;
+        return {
+            stock_id: it.stock_id,
+            nombre: mat ? `${mat.tipo} ${mat.color}` : 'Filamento',
+            gramos: gramosTotal
+        };
+    }).filter(x => x.gramos > 0);
+
+    if (items.length === 0) {
+        alert('Los gramos a descontar deben ser mayores a 0.');
+        return;
+    }
+
+    const resumenTexto = items.map(x => `• ${x.nombre}: ${x.gramos.toFixed(1)} g`).join('\n');
+    const respSocio = prompt(`¿Quién realiza la impresión para descontar de su stock?\nEscribe:\n- P para Pablo\n- J para Javi\n- W para Ambos/Taller\n\nConsumos calculados (${tiradas} tiradas, ${piezasTotales} piezas):\n${resumenTexto}`, 'J');
+
+    if (!respSocio) return;
+    const socio = respSocio.trim().toUpperCase();
+    if (!['P', 'J', 'W'].includes(socio)) {
+        alert('Por favor indica P (Pablo), J (Javi) o W (Ambos/Taller).');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/stock/descontar-lote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                items: items,
+                socio: socio
+            })
+        });
+
+        if (!res.ok) {
+            alert('Error al descontar el stock.');
+            return;
+        }
+
+        await loadStock();
+        await loadBalance();
+        actualizarCalculosColores();
+        const quienNombre = socio === 'P' ? 'Pablo' : (socio === 'J' ? 'Javi' : 'Ambos');
+        mostrarNotificacion(`✅ Stock descontado correctamente a nombre de ${quienNombre}.`);
+    } catch (e) {
+        console.error('Error al descontar stock:', e);
+        alert('Error de conexión al descontar stock.');
+    }
+}
+
+function renderModalPedidoConsumoMateriales() {
+    const container = document.getElementById('pedido-consumo-materiales-container');
+    const lista = document.getElementById('pedido-consumo-materiales-lista');
+    if (!container || !lista) return;
+
+    if (!currentPedidoMaterialesConsumo || currentPedidoMaterialesConsumo.length === 0) {
+        container.classList.add('hidden');
+        return;
+    }
+
+    container.classList.remove('hidden');
+    lista.innerHTML = '';
+
+    currentPedidoMaterialesConsumo.forEach(m => {
+        const despues = Math.max(0, m.stock_actual_g - m.gramos);
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between text-xs py-1 border-b border-slate-800/60 last:border-0';
+        row.innerHTML = `
+            <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full border border-slate-600 flex-shrink-0" style="background-color: ${m.color_hex};"></span>
+                <span class="font-medium text-white">${m.tipo} - ${m.color}</span>
+            </div>
+            <div class="flex items-center gap-2 font-mono">
+                <span class="text-amber-400 font-bold">-${m.gramos.toFixed(1)} g</span>
+                <span class="text-slate-400 text-[11px]">(${m.stock_actual_g.toFixed(0)}g ➔ ${despues.toFixed(0)}g)</span>
+            </div>
+        `;
+        lista.appendChild(row);
+    });
+}
+
 // Convert calculation to new order
 function crearPedidoDesdeCalculo() {
     if (!lastCalculoResultado) return;
@@ -599,6 +898,28 @@ function crearPedidoDesdeCalculo() {
     document.getElementById('form-pedido-cobra').value = 'X';
     document.getElementById('form-pedido-notas').value = `Generado desde Calculadora. Tiradas: ${lastCalculoResultado.tiradas_3d}. Tiempo est: ${lastCalculoResultado.tiempo_formato_str}.`;
 
+    // Process filament color consumption
+    const piezasTirada = parseInt(document.getElementById('calc-piezas-tirada')?.value) || 1;
+    const tiradas = Math.max(1, Math.ceil(piezas / piezasTirada));
+
+    if (calcColoresFilamentos && calcColoresFilamentos.length > 0) {
+        currentPedidoMaterialesConsumo = calcColoresFilamentos.map(it => {
+            const mat = stockData.find(s => s.id === it.stock_id);
+            const gTotal = (parseFloat(it.gramos_tirada) || 0) * tiradas;
+            return {
+                stock_id: it.stock_id,
+                tipo: mat ? mat.tipo : 'PLA',
+                color: mat ? mat.color : 'Color',
+                color_hex: mat ? mat.color_hex : '#64748b',
+                stock_actual_g: mat ? mat.stock_total_g : 0,
+                gramos: gTotal
+            };
+        }).filter(m => m.gramos > 0);
+    } else {
+        currentPedidoMaterialesConsumo = [];
+    }
+
+    renderModalPedidoConsumoMateriales();
     abrirModalPedido();
 }
 
@@ -745,6 +1066,8 @@ async function marcarCobrado(id, socio) {
 
 // Modals Pedido
 function abrirModalNuevoPedido() {
+    currentPedidoMaterialesConsumo = [];
+    renderModalPedidoConsumoMateriales();
     document.getElementById('modal-pedido-title').innerText = 'Registrar Nuevo Pedido';
     document.getElementById('form-pedido-id').value = '';
     document.getElementById('form-pedido-titulo').value = '';
@@ -760,6 +1083,8 @@ function abrirModalNuevoPedido() {
 }
 
 function editarPedidoModal(id) {
+    currentPedidoMaterialesConsumo = [];
+    renderModalPedidoConsumoMateriales();
     const p = pedidosData.find(x => x.id === id);
     if (!p) return;
     document.getElementById('modal-pedido-title').innerText = `Editar Pedido #${p.id}`;
@@ -792,6 +1117,21 @@ async function guardarPedido(e) {
     const precioTotal = parseFloat(document.getElementById('form-pedido-precio-total').value) || (uds * precioUd);
     const cliente = (document.getElementById('form-pedido-cliente').value || '').trim() || 'Particular';
     const fecha = document.getElementById('form-pedido-fecha').value || new Date().toISOString().split('T')[0];
+    const quienHace = document.getElementById('form-pedido-hace').value;
+
+    const autoDescontar = document.getElementById('pedido-auto-descontar-stock')?.checked;
+    const tieneMaterialesADescontar = autoDescontar && currentPedidoMaterialesConsumo && currentPedidoMaterialesConsumo.length > 0;
+
+    let detallesObj = {};
+    if (tieneMaterialesADescontar) {
+        detallesObj = {
+            generado_calculadora: true,
+            materiales_consumidos: currentPedidoMaterialesConsumo,
+            piezas: uds,
+            descontado_auto: true,
+            fecha_consumo: fecha
+        };
+    }
 
     const payload = {
         id: pid,
@@ -802,13 +1142,15 @@ async function guardarPedido(e) {
         precio_unidad: precioUd,
         precio_total: precioTotal,
         pct_ci: 0.20,
-        quien_hace: document.getElementById('form-pedido-hace').value,
+        quien_hace: quienHace,
         quien_cobra: document.getElementById('form-pedido-cobra').value,
-        notas: document.getElementById('form-pedido-notas').value
+        notas: document.getElementById('form-pedido-notas').value,
+        detalles_json: tieneMaterialesADescontar ? JSON.stringify(detallesObj) : ''
     };
 
     try {
         let res;
+        let createdId = pid;
         if (pid) {
             // Update
             res = await fetch(`/api/pedidos/${pid}`, {
@@ -821,7 +1163,6 @@ async function guardarPedido(e) {
                 alert('Error al actualizar pedido: ' + (err.detail || res.statusText));
                 return;
             }
-            mostrarNotificacion(`Pedido #${pid} guardado con éxito.`);
         } else {
             // Create
             res = await fetch('/api/pedidos', {
@@ -835,12 +1176,38 @@ async function guardarPedido(e) {
                 return;
             }
             const created = await res.json();
-            mostrarNotificacion(`Nuevo pedido #${created.id} creado con éxito.`);
+            createdId = created.id;
         }
 
+        // Auto discount stock if selected
+        if (tieneMaterialesADescontar) {
+            try {
+                await fetch('/api/stock/descontar-lote', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        items: currentPedidoMaterialesConsumo,
+                        socio: quienHace
+                    })
+                });
+            } catch (descErr) {
+                console.error('Error al descontar stock en lote:', descErr);
+            }
+        }
+
+        currentPedidoMaterialesConsumo = [];
         cerrarModalPedido();
+        await loadStock();
         await loadBalance();
         await loadPedidos();
+        actualizarCalculosColores();
+
+        if (tieneMaterialesADescontar) {
+            mostrarNotificacion(`✅ Pedido #${createdId} guardado y filamentos descontados del stock.`);
+        } else {
+            mostrarNotificacion(`Pedido #${createdId} guardado con éxito.`);
+        }
+
         switchTab('pedidos');
     } catch (err) {
         console.error('Error guardando pedido:', err);
@@ -886,6 +1253,7 @@ async function loadStock() {
         stockData = await res.json();
         renderStockCards();
         populateCalculatorMaterialDropdown();
+        actualizarSelectsFilamentosCalculadora();
     } catch (e) {
         console.error('Error cargando stock:', e);
     }

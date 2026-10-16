@@ -515,28 +515,80 @@ def update_stock_item(stock_id: int, data: Dict[str, Any]) -> Optional[Dict[str,
     execute_query(sql, params, commit=True)
     return execute_query("SELECT * FROM materiales_stock WHERE id = ?", (stock_id,), fetchone=True)
 
-def descontar_stock(stock_id: int, gramos: float, socio: str) -> Optional[Dict[str, Any]]:
+def descontar_stock(stock_id: int, gramos: float, socio: str = "W") -> Optional[Dict[str, Any]]:
     row = execute_query("SELECT * FROM materiales_stock WHERE id = ?", (stock_id,), fetchone=True)
     if not row:
         return None
         
-    pablo_g = float(row["pablo_g"])
-    javi_g = float(row["javi_g"])
-    socio = socio.upper().strip()
+    pablo_g = float(row["pablo_g"] or 0.0)
+    javi_g = float(row["javi_g"] or 0.0)
+    socio = (socio or "W").upper().strip()
+    gramos_a_descontar = max(0.0, float(gramos))
     
     if socio == "P":
-        pablo_g = max(0.0, pablo_g - gramos)
+        # Descuenta primero de Pablo, si no alcanza descuenta el resto de Javi
+        if pablo_g >= gramos_a_descontar:
+            pablo_g -= gramos_a_descontar
+        else:
+            resto = gramos_a_descontar - pablo_g
+            pablo_g = 0.0
+            javi_g = max(0.0, javi_g - resto)
     elif socio == "J":
-        javi_g = max(0.0, javi_g - gramos)
-    else:
-        mitad = gramos / 2.0
-        pablo_g = max(0.0, pablo_g - mitad)
-        javi_g = max(0.0, javi_g - mitad)
+        # Descuenta primero de Javi, si no alcanza descuenta el resto de Pablo
+        if javi_g >= gramos_a_descontar:
+            javi_g -= gramos_a_descontar
+        else:
+            resto = gramos_a_descontar - javi_g
+            javi_g = 0.0
+            pablo_g = max(0.0, pablo_g - resto)
+    else:  # "W" o taller/ambos
+        mitad = gramos_a_descontar / 2.0
+        if pablo_g >= mitad and javi_g >= mitad:
+            pablo_g -= mitad
+            javi_g -= mitad
+        elif pablo_g < mitad and javi_g >= mitad:
+            resto = mitad - pablo_g
+            pablo_g = 0.0
+            javi_g = max(0.0, javi_g - mitad - resto)
+        elif javi_g < mitad and pablo_g >= mitad:
+            resto = mitad - javi_g
+            javi_g = 0.0
+            pablo_g = max(0.0, pablo_g - mitad - resto)
+        else:
+            pablo_g = 0.0
+            javi_g = 0.0
         
-    total_g = pablo_g + javi_g
+    total_g = max(0.0, pablo_g + javi_g)
     sql = "UPDATE materiales_stock SET pablo_g = ?, javi_g = ?, stock_total_g = ? WHERE id = ?"
     execute_query(sql, (pablo_g, javi_g, total_g, stock_id), commit=True)
-    return {"id": stock_id, "pablo_g": pablo_g, "javi_g": javi_g, "stock_total_g": total_g}
+    return {
+        "id": stock_id,
+        "tipo": row.get("tipo"),
+        "color": row.get("color"),
+        "pablo_g": pablo_g,
+        "javi_g": javi_g,
+        "stock_total_g": total_g,
+        "descontado_g": gramos_a_descontar
+    }
+
+def descontar_stock_lote(items: List[Dict[str, Any]], socio: str = "W") -> List[Dict[str, Any]]:
+    """
+    Descuenta una lista de consumos de filamento:
+    items: [{"stock_id": int, "gramos": float}, ...]
+    """
+    resultados = []
+    for it in items:
+        try:
+            stock_id = int(it.get("stock_id") or it.get("id") or 0)
+            gramos = float(it.get("gramos", 0.0))
+            if stock_id and gramos > 0:
+                res = descontar_stock(stock_id, gramos, socio)
+                if res:
+                    resultados.append(res)
+        except Exception as e:
+            print(f"Error descontando stock item {it}: {e}")
+    return resultados
+
 
 def add_stock_item(data: Dict[str, Any]) -> Dict[str, Any]:
     conn = get_connection()
