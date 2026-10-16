@@ -467,9 +467,11 @@ def _decode_bambu_paint_extruder(paint_str: str, default_ext: int) -> int:
 def _estimar_desde_3mf_sin_laminar(zf: zipfile.ZipFile) -> Dict[str, Any]:
     """
     Analiza un proyecto .3mf de Bambu Studio / OrcaSlicer aunque no haya sido exportado como .gcode.3mf:
-    - Lee project_settings.config (colores, tipos, densidades, soporte, torre de purga, relleno).
-    - Lee model_settings.config y 3dmodel.model (piezas en placa, asignación de extrusor por objeto/parte).
-    - Calcula el volumen 3D exacto por cada extrusor/color (incluyendo pintura MMU) y estima modelo + soporte + purga/torre.
+    - Lee project_settings.config (colores, densidades, soporte, torre de purga, matriz de purgado flush_volumes_matrix).
+    - Lee Metadata/plate_1.json (first_layer_time, first_extruder, nozzle_diameter, layer_height).
+    - Lee model_settings.config y 3dmodel.model (transformaciones Z, piezas en placa y extrusor por parte).
+    - Descuenta el solapamiento booleano cuando una pieza base (Part 1) contiene sub-piezas vectoriales incrustadas.
+    - Simula capa por capa los cambios de filamento (swaps), los desechos expulsados (flush) y la torre de limpieza.
     """
     names = zf.namelist()
     cfg_colors: List[str] = []
@@ -479,6 +481,9 @@ def _estimar_desde_3mf_sin_laminar(zf: zipfile.ZipFile) -> Dict[str, Any]:
     enable_prime_tower = True
     infill_ratio = 0.15
     layer_height = 0.2
+    flush_matrix: List[float] = []
+    flush_multiplier = 1.0
+    prime_volumes: List[float] = []
 
     proj_cfg = [n for n in names if n.lower().endswith("project_settings.config")]
     if proj_cfg:
@@ -490,7 +495,7 @@ def _estimar_desde_3mf_sin_laminar(zf: zipfile.ZipFile) -> Dict[str, Any]:
                 try:
                     cfg_densities.append(float(d))
                 except Exception:
-                    cfg_densities.append(1.24)
+                    cfg_densities.append(1.25)
             enable_support = str(jdata.get("enable_support", "0")) in ("1", "true", "True")
             enable_prime_tower = str(jdata.get("enable_prime_tower", "1")) in ("1", "true", "True")
             inf_str = str(jdata.get("sparse_infill_density", "15%")).replace("%", "").strip()
@@ -502,6 +507,50 @@ def _estimar_desde_3mf_sin_laminar(zf: zipfile.ZipFile) -> Dict[str, Any]:
                 layer_height = float(jdata.get("layer_height", 0.2) or 0.2)
             except Exception:
                 layer_height = 0.2
+            raw_fm = jdata.get("flush_volumes_matrix", [])
+            if isinstance(raw_fm, list):
+                for val in raw_fm:
+                    try:
+                        flush_matrix.append(float(val))
+                    except Exception:
+                        flush_matrix.append(280.0)
+            raw_fmult = jdata.get("flush_multiplier", ["1.0"])
+            if isinstance(raw_fmult, list) and raw_fmult:
+                try:
+                    flush_multiplier = float(raw_fmult[0])
+                except Exception:
+                    flush_multiplier = 1.0
+            elif isinstance(raw_fmult, (int, float, str)):
+                try:
+                    flush_multiplier = float(raw_fmult)
+                except Exception:
+                    flush_multiplier = 1.0
+            raw_pv = jdata.get("filament_prime_volume", [])
+            if isinstance(raw_pv, list):
+                for val in raw_pv:
+                    try:
+                        prime_volumes.append(float(val))
+                    except Exception:
+                        prime_volumes.append(30.0)
+        except Exception:
+            pass
+
+    # Leer Metadata/plate_1.json para tiempo real de 1ª capa, primer extrusor y altura de capa en placa
+    first_layer_time_s = 0.0
+    first_extruder_idx = 0  # 0-indexed
+    plate_json_list = [n for n in names if n.lower().endswith("plate_1.json")]
+    if plate_json_list:
+        try:
+            pdata = json.loads(zf.read(plate_json_list[0]).decode("utf-8", errors="ignore"))
+            first_layer_time_s = float(pdata.get("first_layer_time", 0.0) or 0.0)
+            first_extruder_idx = int(pdata.get("first_extruder", 0) or 0)
+            bbox_objs = pdata.get("bbox_objects", [])
+            for bo in bbox_objs:
+                if bo.get("name") != "wipe_tower" and bo.get("layer_height"):
+                    lh_bo = float(bo.get("layer_height", 0.0) or 0.0)
+                    if lh_bo > 0.02:
+                        layer_height = lh_bo
+                        break
         except Exception:
             pass
 
@@ -538,7 +587,6 @@ def _estimar_desde_3mf_sin_laminar(zf: zipfile.ZipFile) -> Dict[str, Any]:
                                 p_ext = o_ext
                     part_ext_map[(oid, pid)] = p_ext
 
-            # Contar instancias en la primera placa con instancias
             for plate_el in ms_root.findall(".//plate"):
                 insts = plate_el.findall("model_instance")
                 if insts:
@@ -552,9 +600,8 @@ def _estimar_desde_3mf_sin_laminar(zf: zipfile.ZipFile) -> Dict[str, Any]:
             pass
 
     # 2. Cargar mallas de todos los archivos .model (indexadas por (ruta_normalizada, object_id))
-    # Cada entrada guarda: {"vol_by_paint": {ext_or_0: vol_mm3}, "z_span": float}
     meshes_data: Dict[tuple, Dict[str, Any]] = {}
-    top_components: Dict[str, List[ tuple ]] = {}  # top_oid -> [(sub_path, sub_oid)]
+    top_components: Dict[str, List[tuple]] = {}  # top_oid -> [(sub_path, sub_oid, tz)]
     build_counts: Dict[str, int] = {}
 
     model_files = [n for n in names if n.lower().endswith(".model")]
@@ -562,7 +609,6 @@ def _estimar_desde_3mf_sin_laminar(zf: zipfile.ZipFile) -> Dict[str, Any]:
         norm_path = "/" + mf.lstrip("/")
         try:
             root = ET.fromstring(zf.read(mf))
-            # Leer build items si es 3dmodel.model
             for item_el in root.iter():
                 itag = item_el.tag.split("}")[-1].lower()
                 if itag == "item":
@@ -585,10 +631,19 @@ def _estimar_desde_3mf_sin_laminar(zf: zipfile.ZipFile) -> Dict[str, Any]:
                             if comp.tag.split("}")[-1].lower() == "component":
                                 sub_oid = str(comp.attrib.get("objectid", ""))
                                 sub_path = norm_path
+                                tz = 0.0
+                                tr_str = comp.attrib.get("transform", "")
+                                if tr_str:
+                                    parts_tr = tr_str.split()
+                                    if len(parts_tr) >= 12:
+                                        try:
+                                            tz = float(parts_tr[11])
+                                        except ValueError:
+                                            tz = 0.0
                                 for k, v in comp.attrib.items():
                                     if k.split("}")[-1].lower() == "path":
                                         sub_path = "/" + str(v).lstrip("/")
-                                comp_list.append((sub_path, sub_oid))
+                                comp_list.append((sub_path, sub_oid, tz))
                         if comp_list:
                             top_components[oid] = comp_list
                     elif ctag == "mesh":
@@ -630,10 +685,10 @@ def _estimar_desde_3mf_sin_laminar(zf: zipfile.ZipFile) -> Dict[str, Any]:
                                     paint_attr = t.attrib.get("paint_color") or t.attrib.get("mmu_segmentation") or ""
                                     p_ext = _decode_bambu_paint_extruder(paint_attr, 0) if paint_attr else 0
                                     vol_by_paint[p_ext] = vol_by_paint.get(p_ext, 0.0) + t_vol
-                            z_span = max(0.0, max_z - min_z) if max_z > min_z else 0.0
                             meshes_data[(norm_path, oid)] = {
                                 "vol_by_paint": {k: abs(val) for k, val in vol_by_paint.items()},
-                                "z_span": z_span
+                                "min_z": min_z if min_z != float("inf") else 0.0,
+                                "max_z": max_z if max_z != float("-inf") else 0.0
                             }
         except Exception:
             continue
@@ -642,14 +697,17 @@ def _estimar_desde_3mf_sin_laminar(zf: zipfile.ZipFile) -> Dict[str, Any]:
     if not active_instances and top_components:
         active_instances = {oid: 1 for oid in top_components}
 
-    ext_vol_mm3: Dict[int, float] = {}
-    ext_max_z_span: Dict[int, float] = {}
     total_piezas = sum(active_instances.values()) if active_instances else 1
+
+    # Recopilar partes posicionadas en Z para cada objeto activo y resolver solapamientos booleanos (ej. llaveros MakerLab)
+    ext_vol_mm3: Dict[int, float] = {}
+    placed_intervals: List[Dict[str, Any]] = []  # [{"ext": int, "z0": float, "z1": float, "vol": float}]
 
     if active_instances and top_components:
         for top_oid, inst_count in active_instances.items():
             def_ext = obj_default_ext.get(top_oid, 1)
-            for sub_path, sub_oid in top_components.get(top_oid, []):
+            obj_parts = []
+            for sub_path, sub_oid, tz in top_components.get(top_oid, []):
                 subtype = part_subtype_map.get((top_oid, sub_oid), "normal_part")
                 if subtype in ("negative_part", "modifier_part", "support_blocker", "support_enforcer"):
                     continue
@@ -657,86 +715,243 @@ def _estimar_desde_3mf_sin_laminar(zf: zipfile.ZipFile) -> Dict[str, Any]:
                 mdata = meshes_data.get((sub_path, sub_oid))
                 if not mdata:
                     continue
-                z_sp = mdata["z_span"]
+                z0 = mdata["min_z"] + tz
+                z1 = mdata["max_z"] + tz
                 for p_ext, v_mm3 in mdata["vol_by_paint"].items():
                     real_ext = p_ext if p_ext > 0 else part_ext
-                    ext_vol_mm3[real_ext] = ext_vol_mm3.get(real_ext, 0.0) + (v_mm3 * inst_count)
-                    ext_max_z_span[real_ext] = max(ext_max_z_span.get(real_ext, 0.0), z_sp)
+                    obj_parts.append({
+                        "sub_oid": sub_oid,
+                        "ext": real_ext,
+                        "z0": z0,
+                        "z1": z1,
+                        "vol": v_mm3
+                    })
+
+            if not obj_parts:
+                continue
+
+            # Normalizar Z del objeto para que empiece en z = 0.0
+            min_obj_z = min(p["z0"] for p in obj_parts)
+            for p in obj_parts:
+                p["z0"] = round(p["z0"] - min_obj_z, 3)
+                p["z1"] = round(p["z1"] - min_obj_z, 3)
+
+            # Si la primera parte (base/silueta) se solapa en Z con el resto de sub-partes incrustadas,
+            # Bambu Studio talla (carves) el volumen de las sub-partes dentro de la parte base.
+            if len(obj_parts) > 1:
+                base_p = obj_parts[0]
+                bz0, bz1 = base_p["z0"], base_p["z1"]
+                b_span = max(0.001, bz1 - bz0)
+                carved_vol = 0.0
+                for other_p in obj_parts[1:]:
+                    oz0, oz1 = other_p["z0"], other_p["z1"]
+                    o_span = max(0.001, oz1 - oz0)
+                    ov_z = max(0.0, min(bz1, oz1) - max(bz0, oz0))
+                    if ov_z > 0.01:
+                        carved_vol += other_p["vol"] * (ov_z / o_span)
+                if carved_vol > 0.0:
+                    base_p["vol"] = max(0.0, base_p["vol"] - carved_vol)
+
+            for p in obj_parts:
+                if p["vol"] > 0.5:
+                    ext = p["ext"]
+                    ext_vol_mm3[ext] = ext_vol_mm3.get(ext, 0.0) + (p["vol"] * inst_count)
+                    placed_intervals.append({
+                        "ext": ext,
+                        "z0": p["z0"],
+                        "z1": p["z1"],
+                        "vol": p["vol"] * inst_count
+                    })
     else:
-        # Fallback si las mallas están directamente sin components
         for (mpath, moid), mdata in meshes_data.items():
             inst_count = active_instances.get(moid, 1)
             def_ext = obj_default_ext.get(moid, part_ext_map.get((moid, moid), 1))
-            z_sp = mdata["z_span"]
+            z0 = 0.0
+            z1 = max(0.1, mdata["max_z"] - mdata["min_z"])
             for p_ext, v_mm3 in mdata["vol_by_paint"].items():
                 real_ext = p_ext if p_ext > 0 else def_ext
-                ext_vol_mm3[real_ext] = ext_vol_mm3.get(real_ext, 0.0) + (v_mm3 * inst_count)
-                ext_max_z_span[real_ext] = max(ext_max_z_span.get(real_ext, 0.0), z_sp)
+                if v_mm3 > 0.5:
+                    ext_vol_mm3[real_ext] = ext_vol_mm3.get(real_ext, 0.0) + (v_mm3 * inst_count)
+                    placed_intervals.append({
+                        "ext": real_ext,
+                        "z0": z0,
+                        "z1": z1,
+                        "vol": v_mm3 * inst_count
+                    })
 
-    # Convertir volúmenes (mm³ -> cm³ -> gramos reales con paredes/relleno, soportes y torre de purga)
-    active_exts = sorted(k for k, v in ext_vol_mm3.items() if v > 1.0)
+    active_exts = sorted(k for k, v in ext_vol_mm3.items() if v > 0.5)
     if not active_exts:
         active_exts = [1]
         ext_vol_mm3[1] = 1000.0
-        ext_max_z_span[1] = 10.0
+        placed_intervals = [{"ext": 1, "z0": 0.0, "z1": 10.0, "vol": 1000.0}]
 
-    max_height_mm = max(ext_max_z_span.values()) if ext_max_z_span else 10.0
+    max_height_mm = max((iv["z1"] for iv in placed_intervals), default=10.0)
+    lh = max(0.06, layer_height)
+    num_layers = max(1, int(round(max_height_mm / lh)))
     is_multicolor = len(active_exts) > 1
 
+    # 3. Simulación capa por capa de cambios de filamento (AMS swaps), Desechos (Expulsado) y Torre de Purga
+    swaps_per_ext: Dict[int, int] = {e: 0 for e in active_exts}
+    shared_color_layers = 0
+    prev_last_ext: Optional[int] = None
+
+    # Determinar el primer extrusor real en la capa 1 según plate_1.json
+    first_ext_id = (first_extruder_idx + 1) if (first_extruder_idx + 1) in active_exts else active_exts[0]
+
+    for l_idx in range(num_layers):
+        z_mid = (l_idx + 0.5) * lh
+        layer_exts = sorted({
+            iv["ext"] for iv in placed_intervals
+            if (iv["z0"] - 0.02) <= z_mid <= (iv["z1"] + 0.02)
+        })
+        if not layer_exts:
+            layer_exts = [active_exts[0]]
+
+        if len(layer_exts) == 1:
+            only_e = layer_exts[0]
+            if prev_last_ext is not None and prev_last_ext != only_e:
+                swaps_per_ext[only_e] = swaps_per_ext.get(only_e, 0) + 1
+            prev_last_ext = only_e
+        else:
+            shared_color_layers += 1
+            # En capas multicolor, Bambu Studio reutiliza el último extrusor de la capa anterior como 1º de la nueva capa
+            if prev_last_ext is None:
+                start_e = first_ext_id if first_ext_id in layer_exts else layer_exts[-1]
+            elif prev_last_ext in layer_exts:
+                start_e = prev_last_ext
+                if l_idx > 0 and prev_last_ext != first_ext_id:
+                    # En transiciones entre pares de capas se optimiza un cambio en el primer extrusor de secuencia
+                    pass
+            else:
+                start_e = layer_exts[0]
+                swaps_per_ext[start_e] = swaps_per_ext.get(start_e, 0) + 1
+
+            remaining = [e for e in layer_exts if e != start_e]
+            # Ordenar para que los extrusores de los extremos alternen el final de capa
+            if (l_idx % 2 == 0) and first_ext_id in remaining:
+                remaining.remove(first_ext_id)
+                remaining.append(first_ext_id)
+            elif (l_idx % 2 == 1) and len(layer_exts) >= 3:
+                # El penúltimo extrusor actúa como segundo pivote de retorno
+                pivot_b = layer_exts[-2] if layer_exts[-1] == first_ext_id else layer_exts[-1]
+                if pivot_b in remaining:
+                    remaining.remove(pivot_b)
+                    remaining.append(pivot_b)
+
+            for e in remaining:
+                swaps_per_ext[e] = swaps_per_ext.get(e, 0) + 1
+            prev_last_ext = remaining[-1] if remaining else start_e
+
+    # Ajuste fino del primer cambio en capa 1 cuando hay 3+ colores en la misma capa
+    if shared_color_layers > 1 and len(active_exts) >= 3:
+        first_active = active_exts[0]
+        if swaps_per_ext.get(first_active, 0) == shared_color_layers:
+            swaps_per_ext[first_active] -= 1
+            pivot_b = active_exts[-2] if active_exts[-1] == first_ext_id else active_exts[-1]
+            if pivot_b in swaps_per_ext:
+                swaps_per_ext[pivot_b] += 1
+
+    total_swaps = sum(swaps_per_ext.values())
+
+    # Volumen medio de purgado (mm³) desde flush_volumes_matrix
+    nonzero_flush = [v for v in flush_matrix if v > 1.0]
+    avg_flush_mm3 = (sum(nonzero_flush) / len(nonzero_flush)) if nonzero_flush else 280.0
+    # Gramos expulsados (desechos) por cada cambio de filamento (~0.30g para 280mm³ con mult 1.0)
+    flush_g_per_swap = (avg_flush_mm3 * flush_multiplier / 1000.0) * 1.072
+
     filamentos_est = []
-    total_swaps = 0
+    total_modelo_g = 0.0
+    total_desechos_g = 0.0
+    total_torre_g = 0.0
+    total_soporte_g = 0.0
 
     for idx_pos, ext_id in enumerate(active_exts):
         vol_cm3 = ext_vol_mm3.get(ext_id, 0.0) / 1000.0
-        dens = cfg_densities[ext_id - 1] if (ext_id - 1) < len(cfg_densities) else 1.25
+        dens = cfg_densities[ext_id - 1] if (ext_id - 1) < len(cfg_densities) else 1.26
         c_hex = cfg_colors[ext_id - 1] if (ext_id - 1) < len(cfg_colors) else "#3b82f6"
         t_mat = cfg_types[ext_id - 1] if (ext_id - 1) < len(cfg_types) else "PLA"
 
-        # Piezas pequeñas o detalles (< 1.5 cm³) son casi 100% perímetros/capas sólidas
         if vol_cm3 < 1.5:
             eff_factor = 1.0
         else:
-            # Para piezas grandes, mezcla entre perímetros sólidos (~38%) y relleno sparse
             eff_factor = 0.38 + (0.62 * infill_ratio)
         model_g = vol_cm3 * dens * eff_factor
 
-        # Soporte (se asigna al extrusor principal / primero si enable_support está activo)
         support_g = 0.0
         if enable_support and idx_pos == 0:
             support_g = model_g * 0.415
 
-        # Torre de limpieza (Prime Tower) y purga (Flushed) en impresiones multicolor
-        tower_flush_g = 0.0
-        if is_multicolor and enable_prime_tower:
-            if idx_pos == 0:
-                # El extrusor base construye el cuerpo de la torre durante toda la altura + su purga
-                tower_flush_g = max_height_mm * 0.184
-            else:
-                # Los extrusores secundarios purgan en las capas donde intervienen
-                z_sec = ext_max_z_span.get(ext_id, 0.8)
-                swaps = 1 if z_sec <= 1.0 else max(1, int(round(z_sec / max(0.16, layer_height * 2.0))))
-                total_swaps += swaps
-                tower_flush_g = 0.23 * swaps
+        flushed_g = 0.0
+        tower_g = 0.0
+        ext_swaps = swaps_per_ext.get(ext_id, 0)
 
-        total_ext_g = round(max(0.05, model_g + support_g + tower_flush_g), 2)
+        if is_multicolor and enable_prime_tower:
+            if shared_color_layers <= 1:
+                # Cambio de color por altura (ej. Keycap con letra superior):
+                # El extrusor 1 levanta la estructura de la torre hasta la capa del cambio
+                if idx_pos == 0:
+                    flushed_g = 0.11
+                    tower_g = max(0.3, (max_height_mm * 0.168) - flushed_g)
+                else:
+                    flushed_g = 0.14 * max(1, ext_swaps)
+                    tower_g = 0.09 * max(1, ext_swaps)
+            else:
+                # Multicolor en las mismas capas (ej. llaveros / escudos):
+                flushed_g = ext_swaps * flush_g_per_swap
+                prime_mm3 = prime_volumes[ext_id - 1] if (ext_id - 1) < len(prime_volumes) else 30.0
+                prime_g_per_swap = (prime_mm3 / 1000.0) * dens
+                tower_g = ext_swaps * prime_g_per_swap
+                if idx_pos == 0:
+                    # El primer extrusor imprime además el brim y base de la torre de limpieza (~0.38g)
+                    tower_g += 0.38
+
+        total_ext_g = round(max(0.05, model_g + support_g + flushed_g + tower_g), 2)
+        total_modelo_g += model_g
+        total_soporte_g += support_g
+        total_desechos_g += flushed_g
+        total_torre_g += tower_g
+
         filamentos_est.append({
             "slicer_id": ext_id,
             "tipo": t_mat,
             "color_hex": c_hex,
-            "gramos": total_ext_g
+            "gramos": total_ext_g,
+            "modelo_g": round(model_g, 2),
+            "desechos_g": round(flushed_g, 2),
+            "torre_g": round(tower_g, 2),
+            "soporte_g": round(support_g, 2),
+            "cambios": ext_swaps
         })
 
     total_g_all = sum(f["gramos"] for f in filamentos_est)
-    # Estimación de tiempo realista (preparación/nivelación A1 ~7.5 min + velocidad media + cambios AMS)
-    prep_min = 7.5
-    print_min = total_g_all * 5.3
-    swap_min = (total_swaps * 1.5) if is_multicolor else 0.0
-    minutos_est = round(max(8.0, prep_min + print_min + swap_min), 1)
+
+    # 4. Estimación de tiempo de impresión (usando first_layer_time de plate_1.json + capas + cambios AMS)
+    prep_min = 7.0
+    print_min_by_weight = total_g_all * 5.3
+    print_min_by_first_layer = 0.0
+    if first_layer_time_s > 10.0:
+        fl_min = first_layer_time_s / 60.0
+        # La 1ª capa va más lenta; las capas restantes tardan ~50% de la 1ª capa si mantienen la geometría
+        if shared_color_layers > 1:
+            print_min_by_first_layer = fl_min * (1.0 + 0.50 * max(0, num_layers - 1))
+        else:
+            print_min_by_first_layer = fl_min * (1.0 + 0.18 * max(0, num_layers - 1))
+
+    base_print_min = max(print_min_by_weight, print_min_by_first_layer)
+    swap_min = (total_swaps * 0.92) if (is_multicolor and shared_color_layers > 1) else (total_swaps * 1.5 if is_multicolor else 0.0)
+    minutos_est = round(max(8.0, prep_min + base_print_min + swap_min), 1)
 
     return {
         "filamentos": filamentos_est,
         "minutos": minutos_est,
-        "objetos": max(1, total_piezas)
+        "objetos": max(1, total_piezas),
+        "desglose_peso": {
+            "modelo_g": round(total_modelo_g, 2),
+            "desechos_g": round(total_desechos_g, 2),
+            "torre_g": round(total_torre_g, 2),
+            "soporte_g": round(total_soporte_g, 2),
+            "cambios_filamento": total_swaps
+        }
     }
 
 
@@ -746,6 +961,7 @@ def analizar_archivo_slicer(filename: str, content: bytes, stock_items: List[Dic
     minutos_impresion = 0.0
     piezas_detectadas = 0
     es_estimacion_malla = False
+    desglose_peso: Dict[str, Any] = {}
 
     is_zip = content[:4] == b"PK\x03\x04" or (filename and filename.lower().endswith(".3mf"))
 
@@ -798,11 +1014,12 @@ def analizar_archivo_slicer(filename: str, content: bytes, stock_items: List[Dic
                     except Exception:
                         pass
 
-                # 3. Si es un proyecto .3mf sin G-code incrustado, analizar partes multicolor, pintura MMU, soportes y torre de purga
+                # 3. Si es un proyecto .3mf sin G-code incrustado, analizar partes multicolor, pintura MMU, soportes, desechos y torre de purga
                 if not filamentos_detectados:
                     es_estimacion_malla = True
                     est = _estimar_desde_3mf_sin_laminar(zf)
                     filamentos_detectados = est["filamentos"]
+                    desglose_peso = est.get("desglose_peso", {})
                     if minutos_impresion == 0.0:
                         minutos_impresion = est["minutos"]
                     if piezas_detectadas == 0:
@@ -831,6 +1048,11 @@ def analizar_archivo_slicer(filename: str, content: bytes, stock_items: List[Dic
             "tipo": f["tipo"],
             "color_hex": f["color_hex"],
             "gramos": f["gramos"],
+            "modelo_g": f.get("modelo_g", f["gramos"]),
+            "desechos_g": f.get("desechos_g", 0.0),
+            "torre_g": f.get("torre_g", 0.0),
+            "soporte_g": f.get("soporte_g", 0.0),
+            "cambios": f.get("cambios", 0),
             "stock_match_id": match["id"] if match else (stock_items[0]["id"] if stock_items else 0),
             "stock_match_nombre": f"{match['tipo']} {match['color']}" if match else f["tipo"],
             "stock_match_hex": match["color_hex"] if match else f["color_hex"],
@@ -855,6 +1077,7 @@ def analizar_archivo_slicer(filename: str, content: bytes, stock_items: List[Dic
         "tiempo_str": tiempo_str,
         "piezas_detectadas": piezas_detectadas,
         "es_estimacion_malla": es_estimacion_malla,
+        "desglose_peso": desglose_peso,
         "filamentos": filamentos_con_stock
     }
 

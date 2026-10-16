@@ -2089,12 +2089,24 @@ async function procesarArchivoSlicer(file) {
 
         if (statusEl) {
             const notaModo = data.es_estimacion_malla
-                ? ' (Calculado desde proyecto 3D + soportes/torre)'
+                ? ' (Incluye modelo, desechos de purga y torre)'
                 : ' (Datos exactos de G-code laminado)';
             const detalleColores = (data.filamentos || [])
-                .map(f => `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900/90 border border-slate-700 text-[11px]"><span class="w-2.5 h-2.5 rounded-full inline-block border border-white/20" style="background:${f.color_hex}"></span>F${f.slicer_id}: <strong>${f.gramos}g</strong></span>`)
+                .map(f => {
+                    const extraInfo = (f.desechos_g || f.torre_g)
+                        ? ` <span class="text-slate-400 font-normal">(Mod: ${f.modelo_g}g | Purga: ${f.desechos_g}g | Torre: ${f.torre_g}g)</span>`
+                        : '';
+                    return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900/90 border border-slate-700 text-[11px]"><span class="w-2.5 h-2.5 rounded-full inline-block border border-white/20" style="background:${f.color_hex}"></span>F${f.slicer_id}: <strong>${f.gramos}g</strong>${extraInfo}</span>`;
+                })
                 .join(' ');
-            statusEl.innerHTML = `✅ <strong>${file.name}</strong>${notaModo}: <strong>${data.g_por_tirada}g</strong> en <strong>${data.colores} color(es)</strong> • ⏱️ <strong>${data.tiempo_str}</strong><div class="mt-1.5 flex flex-wrap gap-1.5">${detalleColores}</div>`;
+
+            let barraDesglose = '';
+            if (data.desglose_peso && (data.desglose_peso.desechos_g > 0 || data.desglose_peso.torre_g > 0 || data.desglose_peso.soporte_g > 0)) {
+                const dp = data.desglose_peso;
+                barraDesglose = `<div class="mt-1 text-[11px] text-amber-300/90 font-mono">🧩 Modelo: <strong>${dp.modelo_g}g</strong>${dp.soporte_g > 0 ? ` • 🏗️ Soporte: <strong>${dp.soporte_g}g</strong>` : ''} • 🗑️ Desechos (Expulsado): <strong>${dp.desechos_g}g</strong> • 🗼 Torre: <strong>${dp.torre_g}g</strong> • 🔄 Cambios: <strong>${dp.cambios_filamento}</strong></div>`;
+            }
+
+            statusEl.innerHTML = `✅ <strong>${file.name}</strong>${notaModo}: <strong>${data.g_por_tirada}g</strong> en <strong>${data.colores} color(es)</strong> • ⏱️ <strong>${data.tiempo_str}</strong>${barraDesglose}<div class="mt-1.5 flex flex-wrap gap-1.5">${detalleColores}</div>`;
         }
 
         mostrarNotificacion(`🤖 Archivo importado: ${data.g_por_tirada}g (${data.colores} colores) y ${data.tiempo_str}`);
