@@ -1,6 +1,9 @@
 import os
 import io
+import gc
+import tempfile
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import StreamingResponse
@@ -88,16 +91,30 @@ def api_delete_proyecto_calc(pid: str):
 @app.post("/api/calculadora/analizar-archivo")
 async def api_analizar_archivo_slicer(request: Request):
     filename = request.headers.get("X-Filename", "proyecto.3mf")
-    content = await request.body()
-    if not content:
-        raise HTTPException(status_code=400, detail="El archivo está vacío.")
+    spool = tempfile.SpooledTemporaryFile(max_size=4 * 1024 * 1024, mode="w+b")
     try:
+        total_bytes = 0
+        async for chunk in request.stream():
+            if chunk:
+                spool.write(chunk)
+                total_bytes += len(chunk)
+        if total_bytes == 0:
+            raise HTTPException(status_code=400, detail="El archivo está vacío.")
+        spool.seek(0)
         stock_items = get_all_stock()
-        return analizar_archivo_slicer(filename, content, stock_items)
+        return await run_in_threadpool(analizar_archivo_slicer, filename, spool, stock_items)
+    except HTTPException:
+        raise
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error al procesar el archivo: {e}")
+    finally:
+        try:
+            spool.close()
+        except Exception:
+            pass
+        gc.collect()
 
 # --- API PEDIDOS ---
 @app.get("/api/pedidos")

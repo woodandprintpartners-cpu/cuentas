@@ -2034,6 +2034,93 @@ function handleSlicerFileSelect(e) {
     }
 }
 
+let lastSlicerData = null;
+let lastSlicerFileName = '';
+
+function aplicarDatosCamaSlicer(camaData, fullData, fileName) {
+    const statusEl = document.getElementById('slicer-parse-status');
+
+    // Actualizar piezas por cama si se detectaron objetos en la placa
+    const piezasTiradaEl = document.getElementById('calc-piezas-tirada');
+    if (piezasTiradaEl && camaData.piezas_detectadas > 0) {
+        piezasTiradaEl.value = camaData.piezas_detectadas;
+    }
+
+    // Actualizar tiempo de impresión por tirada
+    const minEl = document.getElementById('calc-min-tirada-3d');
+    if (minEl && camaData.min_por_tirada_3d > 0) {
+        minEl.value = Math.round(camaData.min_por_tirada_3d);
+    }
+
+    // Rellenar automáticamente la lista de colores y filamentos en stock
+    if (Array.isArray(camaData.filamentos) && camaData.filamentos.length > 0) {
+        calcColoresFilamentos = camaData.filamentos.map((f, idx) => ({
+            id: 'col_' + Date.now() + '_' + idx,
+            stock_id: parseInt(f.stock_match_id || (stockData[0]?.id || 0)),
+            gramos_tirada: parseFloat(f.gramos) || 0.1
+        }));
+        renderFilasColorCalculadora();
+        actualizarCalculosColores();
+    }
+
+    if (statusEl) {
+        const notaModo = fullData.es_estimacion_malla
+            ? ' (Incluye modelo, desechos de purga y torre)'
+            : ' (Datos exactos de G-code laminado)';
+
+        const boquillaMm = camaData.boquilla_mm || fullData.boquilla_mm || 0.4;
+        const capaMm = camaData.altura_capa_mm || fullData.altura_capa_mm || 0.2;
+        const tipoPlaca = camaData.tipo_placa || fullData.tipo_placa || '';
+        const badgeHardware = `<div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span class="px-2 py-0.5 rounded bg-indigo-950/90 border border-indigo-500/40 text-indigo-200 font-mono">🔩 Boquilla: <strong>${boquillaMm} mm</strong></span>
+            <span class="px-2 py-0.5 rounded bg-indigo-950/90 border border-indigo-500/40 text-indigo-200 font-mono">📏 Capa: <strong>${capaMm} mm</strong></span>
+            ${tipoPlaca ? `<span class="px-2 py-0.5 rounded bg-slate-800 border border-slate-600 text-slate-200 font-mono">🛏️ ${tipoPlaca}</span>` : ''}
+            <span class="px-2 py-0.5 rounded bg-slate-800 border border-slate-600 text-slate-200 font-mono">📦 Objetos en cama: <strong>${camaData.piezas_detectadas || 1}</strong></span>
+        </div>`;
+
+        let selectorCamasHtml = '';
+        if (Array.isArray(fullData.camas) && fullData.camas.length > 1) {
+            const activeId = String(camaData.plate_id ?? fullData.cama_activa_id ?? fullData.camas[0].plate_id);
+            const optionsHtml = fullData.camas.map(c => {
+                const isSel = String(c.plate_id) === activeId ? 'selected' : '';
+                return `<option value="${c.plate_id}" ${isSel}>${c.nombre} — ${c.g_por_tirada}g • ${c.tiempo_str} (${c.piezas_detectadas} obj)</option>`;
+            }).join('');
+            selectorCamasHtml = `<div class="mt-2 p-2 rounded-lg bg-slate-900/90 border border-emerald-500/40 flex flex-wrap items-center gap-2">
+                <label class="text-[11px] font-bold text-emerald-300 uppercase tracking-wider">🛏️ Cama / Placa (${fullData.num_camas} detectadas):</label>
+                <select onchange="cambiarCamaSlicer(this.value)" class="bg-slate-800 text-white text-xs rounded px-2.5 py-1 border border-slate-600 focus:border-emerald-400 outline-none font-semibold">
+                    ${optionsHtml}
+                </select>
+            </div>`;
+        }
+
+        const detalleColores = (camaData.filamentos || [])
+            .map(f => {
+                const extraInfo = (f.desechos_g || f.torre_g)
+                    ? ` <span class="text-slate-400 font-normal">(Mod: ${f.modelo_g}g | Purga: ${f.desechos_g}g | Torre: ${f.torre_g}g)</span>`
+                    : '';
+                return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900/90 border border-slate-700 text-[11px]"><span class="w-2.5 h-2.5 rounded-full inline-block border border-white/20" style="background:${f.color_hex}"></span>F${f.slicer_id}: <strong>${f.gramos}g</strong>${extraInfo}</span>`;
+            })
+            .join(' ');
+
+        let barraDesglose = '';
+        if (camaData.desglose_peso && (camaData.desglose_peso.desechos_g > 0 || camaData.desglose_peso.torre_g > 0 || camaData.desglose_peso.soporte_g > 0)) {
+            const dp = camaData.desglose_peso;
+            barraDesglose = `<div class="mt-1 text-[11px] text-amber-300/90 font-mono">🧩 Modelo: <strong>${dp.modelo_g}g</strong>${dp.soporte_g > 0 ? ` • 🏗️ Soporte: <strong>${dp.soporte_g}g</strong>` : ''} • 🗑️ Desechos (Expulsado): <strong>${dp.desechos_g}g</strong> • 🗼 Torre: <strong>${dp.torre_g}g</strong> • 🔄 Cambios: <strong>${dp.cambios_filamento}</strong></div>`;
+        }
+
+        statusEl.innerHTML = `✅ <strong>${fileName}</strong>${notaModo}: <strong>${camaData.g_por_tirada}g</strong> en <strong>${camaData.colores} color(es)</strong> • ⏱️ <strong>${camaData.tiempo_str}</strong>${badgeHardware}${selectorCamasHtml}${barraDesglose}<div class="mt-1.5 flex flex-wrap gap-1.5">${detalleColores}</div>`;
+    }
+}
+
+function cambiarCamaSlicer(plateId) {
+    if (!lastSlicerData || !Array.isArray(lastSlicerData.camas)) return;
+    const cama = lastSlicerData.camas.find(c => String(c.plate_id) === String(plateId));
+    if (!cama) return;
+    lastSlicerData.cama_activa_id = cama.plate_id;
+    aplicarDatosCamaSlicer(cama, lastSlicerData, lastSlicerFileName);
+    mostrarNotificacion(`🛏️ Cambiado a ${cama.nombre}: ${cama.g_por_tirada}g y ${cama.tiempo_str}`);
+}
+
 async function procesarArchivoSlicer(file) {
     if (!file) return;
     const statusEl = document.getElementById('slicer-parse-status');
@@ -2053,10 +2140,22 @@ async function procesarArchivoSlicer(file) {
             body: file
         });
 
-        const data = await res.json();
+        const rawText = await res.text();
+        if (!rawText || !rawText.trim()) {
+            throw new Error(`El servidor cortó la conexión (HTTP ${res.status}). Si aún no has actualizado Render con la última versión optimizada, sube los archivos de subir_a_github.`);
+        }
+        let data;
+        try {
+            data = JSON.parse(rawText);
+        } catch (_jsonErr) {
+            throw new Error(`Respuesta inválida del servidor (HTTP ${res.status}). Espera unos segundos y vuelve a intentarlo.`);
+        }
         if (!res.ok) {
             throw new Error(data.detail || 'No se pudo leer el archivo');
         }
+
+        lastSlicerData = data;
+        lastSlicerFileName = file.name;
 
         // Actualizar nombre del proyecto limpiando signos +
         const tituloEl = document.getElementById('calc-titulo');
@@ -2064,52 +2163,10 @@ async function procesarArchivoSlicer(file) {
             tituloEl.value = decodeURIComponent(data.nombre_proyecto.replace(/\+/g, ' '));
         }
 
-        // Actualizar piezas por cama si se detectaron objetos en la placa
-        const piezasTiradaEl = document.getElementById('calc-piezas-tirada');
-        if (piezasTiradaEl && data.piezas_detectadas > 0) {
-            piezasTiradaEl.value = data.piezas_detectadas;
-        }
+        aplicarDatosCamaSlicer(data, data, file.name);
 
-        // Actualizar tiempo de impresión por tirada
-        const minEl = document.getElementById('calc-min-tirada-3d');
-        if (minEl && data.min_por_tirada_3d > 0) {
-            minEl.value = Math.round(data.min_por_tirada_3d);
-        }
-
-        // Rellenar automáticamente la lista de colores y filamentos en stock
-        if (Array.isArray(data.filamentos) && data.filamentos.length > 0) {
-            calcColoresFilamentos = data.filamentos.map((f, idx) => ({
-                id: 'col_' + Date.now() + '_' + idx,
-                stock_id: parseInt(f.stock_match_id || (stockData[0]?.id || 0)),
-                gramos_tirada: parseFloat(f.gramos) || 0.1
-            }));
-            renderFilasColorCalculadora();
-            actualizarCalculosColores();
-        }
-
-        if (statusEl) {
-            const notaModo = data.es_estimacion_malla
-                ? ' (Incluye modelo, desechos de purga y torre)'
-                : ' (Datos exactos de G-code laminado)';
-            const detalleColores = (data.filamentos || [])
-                .map(f => {
-                    const extraInfo = (f.desechos_g || f.torre_g)
-                        ? ` <span class="text-slate-400 font-normal">(Mod: ${f.modelo_g}g | Purga: ${f.desechos_g}g | Torre: ${f.torre_g}g)</span>`
-                        : '';
-                    return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900/90 border border-slate-700 text-[11px]"><span class="w-2.5 h-2.5 rounded-full inline-block border border-white/20" style="background:${f.color_hex}"></span>F${f.slicer_id}: <strong>${f.gramos}g</strong>${extraInfo}</span>`;
-                })
-                .join(' ');
-
-            let barraDesglose = '';
-            if (data.desglose_peso && (data.desglose_peso.desechos_g > 0 || data.desglose_peso.torre_g > 0 || data.desglose_peso.soporte_g > 0)) {
-                const dp = data.desglose_peso;
-                barraDesglose = `<div class="mt-1 text-[11px] text-amber-300/90 font-mono">🧩 Modelo: <strong>${dp.modelo_g}g</strong>${dp.soporte_g > 0 ? ` • 🏗️ Soporte: <strong>${dp.soporte_g}g</strong>` : ''} • 🗑️ Desechos (Expulsado): <strong>${dp.desechos_g}g</strong> • 🗼 Torre: <strong>${dp.torre_g}g</strong> • 🔄 Cambios: <strong>${dp.cambios_filamento}</strong></div>`;
-            }
-
-            statusEl.innerHTML = `✅ <strong>${file.name}</strong>${notaModo}: <strong>${data.g_por_tirada}g</strong> en <strong>${data.colores} color(es)</strong> • ⏱️ <strong>${data.tiempo_str}</strong>${barraDesglose}<div class="mt-1.5 flex flex-wrap gap-1.5">${detalleColores}</div>`;
-        }
-
-        mostrarNotificacion(`🤖 Archivo importado: ${data.g_por_tirada}g (${data.colores} colores) y ${data.tiempo_str}`);
+        const extraCamasMsg = (data.num_camas && data.num_camas > 1) ? ` (${data.num_camas} camas detectadas)` : '';
+        mostrarNotificacion(`🤖 Archivo importado: ${data.g_por_tirada}g, boquilla ${data.boquilla_mm || 0.4}mm y ${data.tiempo_str}${extraCamasMsg}`);
     } catch (err) {
         console.error('Error analizando archivo slicer:', err);
         if (statusEl) {
