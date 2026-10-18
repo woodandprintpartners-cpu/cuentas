@@ -121,6 +121,86 @@ function updateBalanceUI() {
     document.getElementById('bal-maq-total').innerText = `${balanceData.gastos_maquinaria.total.toFixed(2)} €`;
     document.getElementById('bal-fondo-ci').innerText = `${balanceData.fondo_indirectos.total_acumulado.toFixed(2)} €`;
 
+    // --- CUENTA DE RESULTADOS GLOBAL DE LA EMPRESA (BENEFICIOS MENOS GASTOS) ---
+    const emp = balanceData.resultado_empresa || {};
+    const totalFact = emp.total_facturado ?? balanceData.ingresos.total_facturado ?? 0;
+    const totalCob = emp.total_cobrado ?? (balanceData.ingresos.cobrado_pablo + balanceData.ingresos.cobrado_javi + (balanceData.ingresos.cobrado_comun || 0));
+    const pendCob = emp.pendiente_cobro ?? balanceData.ingresos.pendiente_cobro ?? 0;
+    const gFil = emp.gastos_filamentos_material ?? balanceData.gastos_material.total ?? 0;
+    const gRep = emp.gastos_repuestos ?? 0;
+    const gMaq = emp.gastos_maquinaria_equipos ?? balanceData.gastos_maquinaria.total ?? 0;
+    const gTotales = emp.gastos_totales_empresa ?? (gFil + gRep + gMaq);
+    const benOpFact = emp.beneficio_operativo_facturado ?? (totalFact - gFil - gRep);
+    const benOpCob = emp.beneficio_operativo_cobrado ?? (totalCob - gFil - gRep);
+    const margenOp = emp.margen_operativo_pct ?? (totalFact > 0 ? ((benOpFact / totalFact) * 100) : 0);
+    const balGlobal = emp.balance_neto_empresa_facturado ?? (totalFact - gTotales);
+    const valStock = emp.valor_inventario_actual ?? 0;
+    const balConStock = emp.balance_con_stock_facturado ?? (balGlobal + valStock);
+    const pctRecup = emp.pct_recuperacion_inversion ?? (gTotales > 0 ? ((totalFact / gTotales) * 100) : 100);
+    const faltaAmort = emp.falta_para_amortizar_todo ?? Math.max(0, gTotales - totalFact);
+
+    const setElText = (id, txt) => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = txt;
+    };
+    const fmtSign = (val) => `${val >= 0 ? '+' : ''}${val.toFixed(2)} €`;
+
+    setElText('emp-ingresos-facturado', `${totalFact.toFixed(2)} €`);
+    setElText('emp-ingresos-cobrado', `${totalCob.toFixed(2)} €`);
+    setElText('emp-ingresos-pendiente', `${pendCob.toFixed(2)} €`);
+
+    setElText('emp-gastos-totales', `-${gTotales.toFixed(2)} €`);
+    setElText('emp-gasto-filamentos', `${gFil.toFixed(2)} €`);
+    setElText('emp-gasto-repuestos', `${gRep.toFixed(2)} €`);
+    setElText('emp-gasto-maquinaria', `${gMaq.toFixed(2)} €`);
+
+    setElText('emp-beneficio-operativo', fmtSign(benOpFact));
+    setElText('emp-beneficio-operativo-cobrado', fmtSign(benOpCob));
+    setElText('emp-margen-operativo-badge', `${margenOp.toFixed(1)}% margen`);
+
+    const balGlobalEl = document.getElementById('emp-balance-global');
+    if (balGlobalEl) {
+        balGlobalEl.innerText = fmtSign(balGlobal);
+        balGlobalEl.className = `text-2xl font-black font-mono block ${balGlobal >= 0 ? 'text-emerald-400' : 'text-amber-400'}`;
+    }
+    setElText('emp-valor-stock-inline', `+${valStock.toFixed(0)}€`);
+    setElText('emp-balance-con-stock', fmtSign(balConStock));
+
+    setElText('emp-pct-recuperacion', `${pctRecup.toFixed(1)}%`);
+    const barraEl = document.getElementById('emp-barra-recuperacion');
+    if (barraEl) {
+        barraEl.style.width = `${Math.min(100, Math.max(2, pctRecup))}%`;
+    }
+    const txtAmortEl = document.getElementById('emp-texto-amortizacion');
+    if (txtAmortEl) {
+        if (balGlobal >= 0) {
+            txtAmortEl.innerHTML = `<span class="text-emerald-400 font-bold">¡100% Amortizado!</span> Beneficio neto libre tras pagar toda la maquinaria: <strong>+${balGlobal.toFixed(2)} €</strong>`;
+        } else {
+            txtAmortEl.innerHTML = `Recuperados <strong>${totalFact.toFixed(2)} €</strong> de <strong>${gTotales.toFixed(2)} €</strong> • Faltan <strong class="text-amber-300">${faltaAmort.toFixed(2)} €</strong> para amortizar el 100% de la maquinaria`;
+        }
+    }
+
+    const estadoBadgeEl = document.getElementById('emp-estado-badge');
+    if (estadoBadgeEl) {
+        if (balGlobal >= 0) {
+            estadoBadgeEl.className = 'px-3.5 py-1.5 rounded-full text-xs font-bold border bg-emerald-950/80 text-emerald-300 border-emerald-600/50';
+            estadoBadgeEl.innerText = `🚀 Empresa 100% Amortizada (+${balGlobal.toFixed(2)} € netos)`;
+        } else if (benOpFact > 0) {
+            estadoBadgeEl.className = 'px-3.5 py-1.5 rounded-full text-xs font-bold border bg-indigo-950/80 text-indigo-200 border-indigo-500/50';
+            estadoBadgeEl.innerText = `📈 Producción Rentable (+${benOpFact.toFixed(2)} €) • Amortizando Maquinaria (${pctRecup.toFixed(1)}%)`;
+        } else {
+            estadoBadgeEl.className = 'px-3.5 py-1.5 rounded-full text-xs font-bold border bg-amber-950/80 text-amber-300 border-amber-600/50';
+            estadoBadgeEl.innerText = `⏳ En fase de inversión inicial (${pctRecup.toFixed(1)}% recuperado)`;
+        }
+    }
+
+    const balSocPablo = emp.balance_total_pablo ?? (balanceData.ingresos.cobrado_pablo - balanceData.gastos_material.pablo - balanceData.gastos_maquinaria.pablo);
+    const balSocJavi = emp.balance_total_javi ?? (balanceData.ingresos.cobrado_javi - balanceData.gastos_material.javi - balanceData.gastos_maquinaria.javi);
+    setElText('emp-socio-global-pablo', fmtSign(balSocPablo));
+    setElText('emp-socio-global-javi', fmtSign(balSocJavi));
+    setElText('emp-gasto-total-pablo', `${(emp.gasto_total_pablo ?? (balanceData.gastos_material.pablo + balanceData.gastos_maquinaria.pablo)).toFixed(2)} €`);
+    setElText('emp-gasto-total-javi', `${(emp.gasto_total_javi ?? (balanceData.gastos_material.javi + balanceData.gastos_maquinaria.javi)).toFixed(2)} €`);
+
     // Settlement Box in Tab
     document.getElementById('settlement-message').innerText = liq.mensaje;
     document.getElementById('settlement-pablo-net').innerText = `${liq.dinero_neto_pablo.toFixed(2)} €`;
@@ -157,6 +237,9 @@ function updateBalanceUI() {
 
     // Tabla de transferencias
     renderTransferenciasTable(balanceData.transferencias || []);
+    if (currentTab === 'balance') {
+        renderBalanceChart();
+    }
 
     // Pending Orders Alert List
     const pendList = document.getElementById('pending-orders-list');
@@ -1822,13 +1905,14 @@ function renderBalanceChart() {
     balanceChart = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: ['Ingresos Cobrados', 'Gastos Material', 'Dinero Neto en Mano'],
+            labels: ['Ingresos Cobrados', 'Gastos Filamentos/Mat.', 'Gastos Maq./Repuestos', 'Neto Operativo'],
             datasets: [
                 {
                     label: 'Pablo',
                     data: [
                         balanceData.ingresos.cobrado_pablo,
                         balanceData.gastos_material.pablo,
+                        balanceData.gastos_maquinaria.pablo,
                         balanceData.liquidacion.dinero_neto_pablo
                     ],
                     backgroundColor: 'rgba(59, 130, 246, 0.7)',
@@ -1840,6 +1924,7 @@ function renderBalanceChart() {
                     data: [
                         balanceData.ingresos.cobrado_javi,
                         balanceData.gastos_material.javi,
+                        balanceData.gastos_maquinaria.javi,
                         balanceData.liquidacion.dinero_neto_javi
                     ],
                     backgroundColor: 'rgba(34, 197, 94, 0.7)',

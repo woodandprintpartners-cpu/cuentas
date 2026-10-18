@@ -811,16 +811,26 @@ def get_balance_financiero() -> Dict[str, Any]:
         elif "W" in pg:
             gmat_empresa += pr
             
-    # Gastos Maquinaria
+    # Gastos Maquinaria y Repuestos
     gastos_maq = execute_query("SELECT * FROM gastos_maquinaria", fetchall=True) or []
     gmaq_total = 0.0
     gmaq_pablo = 0.0
     gmaq_javi = 0.0
     gmaq_empresa = 0.0
-    
+    grepuestos_total = 0.0
+    gmaquinaria_pura_total = 0.0
+
+    repuestos_keywords = ("boquilla", "recambio", "repuesto", "reparaci", "correa", "extrusor", "hotend", "ventilador", "sensor", "tubo", "ptfe", "lubricante", "cama", "pei", "mantenimiento")
+
     for m in gastos_maq:
         pr = float(m["precio"] or 0)
         gmaq_total += pr
+        concepto_low = str(m.get("concepto") or "").lower()
+        if any(k in concepto_low for k in repuestos_keywords):
+            grepuestos_total += pr
+        else:
+            gmaquinaria_pura_total += pr
+
         pg = str(m["pagado_por"] or "").strip().upper()
         if pg == "P":
             gmaq_pablo += pr
@@ -828,7 +838,14 @@ def get_balance_financiero() -> Dict[str, Any]:
             gmaq_javi += pr
         elif "W" in pg:
             gmaq_empresa += pr
-            
+
+    # Valor actual del stock en taller (filamentos + fornituras)
+    stock_rows = execute_query("SELECT stock_total_g, precio_kg_estimado FROM materiales_stock", fetchall=True) or []
+    forn_rows = execute_query("SELECT cantidad, coste_unitario FROM fornituras", fetchall=True) or []
+    valor_stock_filamentos = sum((float(s.get("stock_total_g") or 0.0) / 1000.0) * float(s.get("precio_kg_estimado") or 20.0) for s in stock_rows)
+    valor_stock_fornituras = sum(float(f.get("cantidad") or 0.0) * float(f.get("coste_unitario") or 0.0) for f in forn_rows)
+    valor_inventario_actual = round(valor_stock_filamentos + valor_stock_fornituras, 2)
+
     # Transferencias y Cuadres entre Socios
     transferencias = execute_query("SELECT * FROM transferencias_socios ORDER BY fecha DESC, id DESC", fetchall=True) or []
     total_transferido_pablo_a_javi = 0.0
@@ -886,10 +903,38 @@ def get_balance_financiero() -> Dict[str, Any]:
             mensaje_liquidacion = f"¡Cuentas al día! Tras compensar {total_transferido_acumulado:.2f} €, ambos socios están exactamente al 50% de beneficios."
         else:
             mensaje_liquidacion = "¡Cuentas al día! Ambos socios están exactamente al 50% de beneficios netos."
-        
+
+    # --- CÁLCULO GLOBAL DE LA EMPRESA (BENEFICIOS MENOS TODOS LOS GASTOS) ---
+    total_cobrado_efectivo = round(cobrado_pablo + cobrado_javi + cobrado_comun, 2)
+    gastos_operativos_total = round(gmat_total + grepuestos_total, 2)  # Filamentos/Materiales + Repuestos/Boquillas
+    gastos_totales_empresa = round(gmat_total + gmaq_total, 2)  # Filamentos + Repuestos + Maquinaria/Equipos
+
+    # 1. Beneficio Operativo del Día a Día (descontando filamentos, materiales y repuestos/reparaciones)
+    beneficio_operativo_facturado = round(total_ingresos - gastos_operativos_total, 2)
+    beneficio_operativo_cobrado = round(total_cobrado_efectivo - gastos_operativos_total, 2)
+    margen_operativo_pct = round((beneficio_operativo_facturado / total_ingresos) * 100.0, 1) if total_ingresos > 0 else 0.0
+
+    # 2. Resultado Neto Global de la Empresa (descontando ABSOLUTAMENTE TODO: Filamentos + Repuestos + Maquinaria)
+    balance_neto_empresa_facturado = round(total_ingresos - gastos_totales_empresa, 2)
+    balance_neto_empresa_cobrado = round(total_cobrado_efectivo - gastos_totales_empresa, 2)
+
+    # 3. Resultado Patrimonial (sumando el valor del stock que hay comprado en estantería)
+    balance_con_stock_facturado = round(balance_neto_empresa_facturado + valor_inventario_actual, 2)
+
+    # 4. Porcentaje de recuperación / amortización de todos los gastos e inversiones
+    pct_recuperacion_inversion = round(min(999.9, (total_ingresos / gastos_totales_empresa) * 100.0), 1) if gastos_totales_empresa > 0 else 100.0
+    falta_para_amortizar_todo = round(max(0.0, gastos_totales_empresa - total_ingresos), 2)
+
+    # 5. Balance histórico por socio (incluyendo su inversión en maquinaria + material)
+    gasto_total_pablo = round(gmat_pablo + gmaq_pablo, 2)
+    gasto_total_javi = round(gmat_javi + gmaq_javi, 2)
+    balance_total_pablo = round(cobrado_pablo - gasto_total_pablo - transferencias_netas, 2)
+    balance_total_javi = round(cobrado_javi - gasto_total_javi + transferencias_netas, 2)
+
     return {
         "ingresos": {
             "total_facturado": round(total_ingresos, 2),
+            "total_cobrado": total_cobrado_efectivo,
             "cobrado_javi": round(cobrado_javi, 2),
             "cobrado_pablo": round(cobrado_pablo, 2),
             "cobrado_comun": round(cobrado_comun, 2),
@@ -903,9 +948,34 @@ def get_balance_financiero() -> Dict[str, Any]:
         },
         "gastos_maquinaria": {
             "total": round(gmaq_total, 2),
+            "repuestos": round(grepuestos_total, 2),
+            "equipos_maquinaria": round(gmaquinaria_pura_total, 2),
             "pablo": round(gmaq_pablo, 2),
             "javi": round(gmaq_javi, 2),
             "empresa": round(gmaq_empresa, 2)
+        },
+        "resultado_empresa": {
+            "total_facturado": round(total_ingresos, 2),
+            "total_cobrado": total_cobrado_efectivo,
+            "pendiente_cobro": round(pendiente_cobro, 2),
+            "gastos_filamentos_material": round(gmat_total, 2),
+            "gastos_repuestos": round(grepuestos_total, 2),
+            "gastos_maquinaria_equipos": round(gmaquinaria_pura_total, 2),
+            "gastos_operativos_total": gastos_operativos_total,
+            "gastos_totales_empresa": gastos_totales_empresa,
+            "beneficio_operativo_facturado": beneficio_operativo_facturado,
+            "beneficio_operativo_cobrado": beneficio_operativo_cobrado,
+            "margen_operativo_pct": margen_operativo_pct,
+            "balance_neto_empresa_facturado": balance_neto_empresa_facturado,
+            "balance_neto_empresa_cobrado": balance_neto_empresa_cobrado,
+            "valor_inventario_actual": valor_inventario_actual,
+            "balance_con_stock_facturado": balance_con_stock_facturado,
+            "pct_recuperacion_inversion": pct_recuperacion_inversion,
+            "falta_para_amortizar_todo": falta_para_amortizar_todo,
+            "gasto_total_pablo": gasto_total_pablo,
+            "gasto_total_javi": gasto_total_javi,
+            "balance_total_pablo": balance_total_pablo,
+            "balance_total_javi": balance_total_javi
         },
         "fondo_indirectos": {
             "total_acumulado": round(total_gastos_indirectos, 2),

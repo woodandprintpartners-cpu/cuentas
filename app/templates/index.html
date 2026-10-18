@@ -671,6 +671,101 @@
                 </div>
             </div>
 
+            <!-- 🏢 CUENTA DE RESULTADOS Y SALUD DE LA EMPRESA (BENEFICIOS MENOS TODOS LOS GASTOS) -->
+            <div class="glass-card p-6 rounded-3xl border-2 border-indigo-500/30 bg-gradient-to-br from-slate-900 via-indigo-950/20 to-slate-900 shadow-2xl space-y-5">
+                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                    <div>
+                        <span class="text-xs font-bold uppercase tracking-widest text-indigo-400 flex items-center gap-1.5">
+                            🏢 Cuenta de Resultados Global W&P
+                        </span>
+                        <h3 class="text-lg md:text-xl font-black text-white">
+                            ¿Cómo va la Empresa? (Ingresos − Filamentos, Repuestos y Maquinaria)
+                        </h3>
+                        <p class="text-xs text-slate-400">
+                            Comparativa real entre lo ingresado por pedidos y todos los gastos acumulados de filamentos, recambios/boquillas e inversión en maquinaria.
+                        </p>
+                    </div>
+                    <span id="emp-estado-badge" class="px-3.5 py-1.5 rounded-full text-xs font-bold border bg-emerald-950/70 text-emerald-300 border-emerald-700/50">
+                        Calculando estado...
+                    </span>
+                </div>
+
+                <!-- 4 Tarjetas Principales de Resultado -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <!-- 1. Ingresos Totales -->
+                    <div class="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl space-y-1.5">
+                        <span class="text-xs text-slate-400 font-semibold block">1. Ingresos de Pedidos</span>
+                        <span id="emp-ingresos-facturado" class="text-2xl font-black font-mono text-white block">0.00 €</span>
+                        <div class="text-[11px] text-slate-400 pt-1 border-t border-slate-800/80 flex flex-col gap-0.5">
+                            <span>💵 Ya cobrado en caja: <strong id="emp-ingresos-cobrado" class="text-emerald-400 font-mono">0.00 €</strong></span>
+                            <span>⏳ Pendiente de cobro: <strong id="emp-ingresos-pendiente" class="text-amber-400 font-mono">0.00 €</strong></span>
+                        </div>
+                    </div>
+
+                    <!-- 2. Desglose de Todos los Gastos -->
+                    <div class="bg-slate-900/90 border border-rose-500/30 p-4 rounded-2xl space-y-1.5">
+                        <span class="text-xs text-rose-300 font-semibold block">2. Gastos Totales Acumulados</span>
+                        <span id="emp-gastos-totales" class="text-2xl font-black font-mono text-rose-400 block">-0.00 €</span>
+                        <div class="text-[11px] text-slate-300 pt-1 border-t border-slate-800/80 flex flex-col gap-0.5 font-mono">
+                            <span>🧵 Filamentos y Material: <strong id="emp-gasto-filamentos" class="text-rose-300">0.00 €</strong></span>
+                            <span>🔧 Repuestos y Boquillas: <strong id="emp-gasto-repuestos" class="text-amber-300">0.00 €</strong></span>
+                            <span>🖨️ Maquinaria y Equipos: <strong id="emp-gasto-maquinaria" class="text-indigo-300">0.00 €</strong></span>
+                        </div>
+                    </div>
+
+                    <!-- 3. Beneficio Operativo (Sin Maquinaria pesada) -->
+                    <div class="bg-slate-900/90 border border-emerald-500/30 p-4 rounded-2xl space-y-1.5">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs text-emerald-300 font-semibold">3. Beneficio Operativo</span>
+                            <span id="emp-margen-operativo-badge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700/50">0% margen</span>
+                        </div>
+                        <span id="emp-beneficio-operativo" class="text-2xl font-black font-mono text-emerald-400 block">+0.00 €</span>
+                        <div class="text-[11px] text-slate-400 pt-1 border-t border-slate-800/80 flex flex-col gap-0.5">
+                            <span>Ingresos − (Filamentos + Repuestos)</span>
+                            <span>💵 En efectivo cobrado: <strong id="emp-beneficio-operativo-cobrado" class="text-emerald-300 font-mono">+0.00 €</strong></span>
+                        </div>
+                    </div>
+
+                    <!-- 4. Balance Neto Global (Restando también toda la Maquinaria) -->
+                    <div class="bg-slate-900/90 border border-amber-500/30 p-4 rounded-2xl space-y-1.5">
+                        <span class="text-xs text-amber-300 font-semibold block">4. Balance Global (con Maquinaria)</span>
+                        <span id="emp-balance-global" class="text-2xl font-black font-mono text-amber-400 block">0.00 €</span>
+                        <div class="text-[11px] text-slate-400 pt-1 border-t border-slate-800/80 flex flex-col gap-0.5">
+                            <span>Ingresos − TODOS los gastos</span>
+                            <span>📦 Contando stock actual (<span id="emp-valor-stock-inline" class="font-mono text-purple-300">0€</span>): <strong id="emp-balance-con-stock" class="text-white font-mono">0.00 €</strong></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Barra de Amortización / Recuperación de la Inversión Total -->
+                <div class="bg-slate-950/70 border border-slate-800 p-4 rounded-2xl space-y-2.5">
+                    <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <span class="font-bold text-slate-200 flex items-center gap-1.5">
+                            🎯 Progreso de Recuperación / Amortización de Todos los Gastos e Inversiones:
+                            <strong id="emp-pct-recuperacion" class="text-indigo-400 font-mono text-sm">0.0%</strong>
+                        </span>
+                        <span id="emp-texto-amortizacion" class="text-slate-400 font-mono">
+                            Calculando amortización...
+                        </span>
+                    </div>
+                    <div class="w-full h-3 bg-slate-800 rounded-full overflow-hidden p-0.5">
+                        <div id="emp-barra-recuperacion" class="h-full rounded-full bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-400 transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                    <div class="flex flex-wrap items-center justify-between gap-3 pt-1 text-[11px] text-slate-400 border-t border-slate-800/60">
+                        <div>
+                            👤 <strong>Balance Global Pablo</strong> (Cobrado − Filamentos − Maquinaria/PC):
+                            <strong id="emp-socio-global-pablo" class="font-mono text-blue-400 ml-1">0.00 €</strong>
+                            <span class="text-slate-500 font-mono">(<span id="emp-gasto-total-pablo">0.00 €</span> gastados en total)</span>
+                        </div>
+                        <div>
+                            👤 <strong>Balance Global Javi</strong> (Cobrado − Filamentos − Maquinaria/Láser):
+                            <strong id="emp-socio-global-javi" class="font-mono text-emerald-400 ml-1">0.00 €</strong>
+                            <span class="text-slate-500 font-mono">(<span id="emp-gasto-total-javi">0.00 €</span> gastados en total)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Chart & Pending Orders Row -->
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 <!-- Comparison Chart (7 Cols) -->
