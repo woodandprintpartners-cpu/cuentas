@@ -4,7 +4,10 @@ let pedidosData = [];
 let stockData = [];
 let forniturasData = [];
 let balanceData = {};
+let estadisticasData = null;
 let balanceChart = null;
+let evolucionMensualChart = null;
+let stockColoresChart = null;
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
@@ -47,6 +50,7 @@ function switchTab(tabName) {
 
     if (tabName === 'balance') {
         renderBalanceChart();
+        renderEstadisticasCharts();
     }
 }
 
@@ -64,8 +68,15 @@ async function loadAllData() {
 
 async function loadBalance() {
     try {
-        const res = await fetch('/api/balance');
-        balanceData = await res.json();
+        const [resBal, resStats] = await Promise.all([
+            fetch('/api/balance'),
+            fetch('/api/estadisticas')
+        ]);
+        balanceData = await resBal.json();
+        if (resStats.ok) {
+            estadisticasData = await resStats.json();
+            updateEstadisticasUI();
+        }
         updateBalanceUI();
     } catch (e) {
         console.error('Error cargando balance:', e);
@@ -110,6 +121,86 @@ function updateBalanceUI() {
     document.getElementById('bal-maq-total').innerText = `${balanceData.gastos_maquinaria.total.toFixed(2)} €`;
     document.getElementById('bal-fondo-ci').innerText = `${balanceData.fondo_indirectos.total_acumulado.toFixed(2)} €`;
 
+    // --- CUENTA DE RESULTADOS GLOBAL DE LA EMPRESA (BENEFICIOS MENOS GASTOS) ---
+    const emp = balanceData.resultado_empresa || {};
+    const totalFact = emp.total_facturado ?? balanceData.ingresos.total_facturado ?? 0;
+    const totalCob = emp.total_cobrado ?? (balanceData.ingresos.cobrado_pablo + balanceData.ingresos.cobrado_javi + (balanceData.ingresos.cobrado_comun || 0));
+    const pendCob = emp.pendiente_cobro ?? balanceData.ingresos.pendiente_cobro ?? 0;
+    const gFil = emp.gastos_filamentos_material ?? balanceData.gastos_material.total ?? 0;
+    const gRep = emp.gastos_repuestos ?? 0;
+    const gMaq = emp.gastos_maquinaria_equipos ?? balanceData.gastos_maquinaria.total ?? 0;
+    const gTotales = emp.gastos_totales_empresa ?? (gFil + gRep + gMaq);
+    const benOpFact = emp.beneficio_operativo_facturado ?? (totalFact - gFil - gRep);
+    const benOpCob = emp.beneficio_operativo_cobrado ?? (totalCob - gFil - gRep);
+    const margenOp = emp.margen_operativo_pct ?? (totalFact > 0 ? ((benOpFact / totalFact) * 100) : 0);
+    const balGlobal = emp.balance_neto_empresa_facturado ?? (totalFact - gTotales);
+    const valStock = emp.valor_inventario_actual ?? 0;
+    const balConStock = emp.balance_con_stock_facturado ?? (balGlobal + valStock);
+    const pctRecup = emp.pct_recuperacion_inversion ?? (gTotales > 0 ? ((totalFact / gTotales) * 100) : 100);
+    const faltaAmort = emp.falta_para_amortizar_todo ?? Math.max(0, gTotales - totalFact);
+
+    const setElText = (id, txt) => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = txt;
+    };
+    const fmtSign = (val) => `${val >= 0 ? '+' : ''}${val.toFixed(2)} €`;
+
+    setElText('emp-ingresos-facturado', `${totalFact.toFixed(2)} €`);
+    setElText('emp-ingresos-cobrado', `${totalCob.toFixed(2)} €`);
+    setElText('emp-ingresos-pendiente', `${pendCob.toFixed(2)} €`);
+
+    setElText('emp-gastos-totales', `-${gTotales.toFixed(2)} €`);
+    setElText('emp-gasto-filamentos', `${gFil.toFixed(2)} €`);
+    setElText('emp-gasto-repuestos', `${gRep.toFixed(2)} €`);
+    setElText('emp-gasto-maquinaria', `${gMaq.toFixed(2)} €`);
+
+    setElText('emp-beneficio-operativo', fmtSign(benOpFact));
+    setElText('emp-beneficio-operativo-cobrado', fmtSign(benOpCob));
+    setElText('emp-margen-operativo-badge', `${margenOp.toFixed(1)}% margen`);
+
+    const balGlobalEl = document.getElementById('emp-balance-global');
+    if (balGlobalEl) {
+        balGlobalEl.innerText = fmtSign(balGlobal);
+        balGlobalEl.className = `text-2xl font-black font-mono block ${balGlobal >= 0 ? 'text-emerald-400' : 'text-amber-400'}`;
+    }
+    setElText('emp-valor-stock-inline', `+${valStock.toFixed(0)}€`);
+    setElText('emp-balance-con-stock', fmtSign(balConStock));
+
+    setElText('emp-pct-recuperacion', `${pctRecup.toFixed(1)}%`);
+    const barraEl = document.getElementById('emp-barra-recuperacion');
+    if (barraEl) {
+        barraEl.style.width = `${Math.min(100, Math.max(2, pctRecup))}%`;
+    }
+    const txtAmortEl = document.getElementById('emp-texto-amortizacion');
+    if (txtAmortEl) {
+        if (balGlobal >= 0) {
+            txtAmortEl.innerHTML = `<span class="text-emerald-400 font-bold">¡100% Amortizado!</span> Beneficio neto libre tras pagar toda la maquinaria: <strong>+${balGlobal.toFixed(2)} €</strong>`;
+        } else {
+            txtAmortEl.innerHTML = `Recuperados <strong>${totalFact.toFixed(2)} €</strong> de <strong>${gTotales.toFixed(2)} €</strong> • Faltan <strong class="text-amber-300">${faltaAmort.toFixed(2)} €</strong> para amortizar el 100% de la maquinaria`;
+        }
+    }
+
+    const estadoBadgeEl = document.getElementById('emp-estado-badge');
+    if (estadoBadgeEl) {
+        if (balGlobal >= 0) {
+            estadoBadgeEl.className = 'px-3.5 py-1.5 rounded-full text-xs font-bold border bg-emerald-950/80 text-emerald-300 border-emerald-600/50';
+            estadoBadgeEl.innerText = `🚀 Empresa 100% Amortizada (+${balGlobal.toFixed(2)} € netos)`;
+        } else if (benOpFact > 0) {
+            estadoBadgeEl.className = 'px-3.5 py-1.5 rounded-full text-xs font-bold border bg-indigo-950/80 text-indigo-200 border-indigo-500/50';
+            estadoBadgeEl.innerText = `📈 Producción Rentable (+${benOpFact.toFixed(2)} €) • Amortizando Maquinaria (${pctRecup.toFixed(1)}%)`;
+        } else {
+            estadoBadgeEl.className = 'px-3.5 py-1.5 rounded-full text-xs font-bold border bg-amber-950/80 text-amber-300 border-amber-600/50';
+            estadoBadgeEl.innerText = `⏳ En fase de inversión inicial (${pctRecup.toFixed(1)}% recuperado)`;
+        }
+    }
+
+    const balSocPablo = emp.balance_total_pablo ?? (balanceData.ingresos.cobrado_pablo - balanceData.gastos_material.pablo - balanceData.gastos_maquinaria.pablo);
+    const balSocJavi = emp.balance_total_javi ?? (balanceData.ingresos.cobrado_javi - balanceData.gastos_material.javi - balanceData.gastos_maquinaria.javi);
+    setElText('emp-socio-global-pablo', fmtSign(balSocPablo));
+    setElText('emp-socio-global-javi', fmtSign(balSocJavi));
+    setElText('emp-gasto-total-pablo', `${(emp.gasto_total_pablo ?? (balanceData.gastos_material.pablo + balanceData.gastos_maquinaria.pablo)).toFixed(2)} €`);
+    setElText('emp-gasto-total-javi', `${(emp.gasto_total_javi ?? (balanceData.gastos_material.javi + balanceData.gastos_maquinaria.javi)).toFixed(2)} €`);
+
     // Settlement Box in Tab
     document.getElementById('settlement-message').innerText = liq.mensaje;
     document.getElementById('settlement-pablo-net').innerText = `${liq.dinero_neto_pablo.toFixed(2)} €`;
@@ -146,6 +237,9 @@ function updateBalanceUI() {
 
     // Tabla de transferencias
     renderTransferenciasTable(balanceData.transferencias || []);
+    if (currentTab === 'balance') {
+        renderBalanceChart();
+    }
 
     // Pending Orders Alert List
     const pendList = document.getElementById('pending-orders-list');
@@ -674,12 +768,12 @@ function renderFilasColorCalculadora() {
             <div class="flex items-center justify-between md:justify-end gap-3 flex-wrap">
                 <div class="flex items-center gap-1.5">
                     <span class="text-slate-400 text-[11px]">Gramos/cama:</span>
-                    <input type="number" step="0.1" min="0" value="${item.gramos_tirada}" oninput="cambiarGramosFilaColor('${item.id}', this.value)" class="w-20 bg-slate-950 border border-slate-700/80 rounded-lg px-2 py-1 text-white font-mono text-right focus:ring-1 focus:ring-purple-500">
+                    <input type="number" step="0.01" min="0" value="${item.gramos_tirada}" oninput="cambiarGramosFilaColor('${item.id}', this.value)" class="w-20 bg-slate-950 border border-slate-700/80 rounded-lg px-2 py-1 text-white font-mono text-right focus:ring-1 focus:ring-purple-500">
                     <span class="text-slate-400 font-mono text-xs">g</span>
                 </div>
                 <div class="flex items-center gap-2 font-mono text-[11px]">
                     <span class="px-2 py-0.5 rounded-md bg-slate-800 text-purple-300 font-bold border border-slate-700/60" id="badge-total-${item.id}" title="Gramos totales para ${tiradas} tiradas">
-                        Total: ${totalG.toFixed(1)}g
+                        Total: ${Number(totalG.toFixed(2))}g
                     </span>
                     <span class="px-2 py-0.5 rounded-md font-semibold ${suficiente ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/50' : 'bg-red-950/70 text-red-300 border border-red-800/60'}" id="badge-stock-${item.id}">
                         ${suficiente ? `Quedan ${restante.toFixed(0)}g` : `⚠️ Falta (${Math.abs(restante).toFixed(0)}g)`}
@@ -735,7 +829,7 @@ function actualizarCalculosColores(rebuildDOM = false) {
         if (swatch) swatch.style.backgroundColor = mat.color_hex || '#64748b';
 
         const badgeTotal = document.getElementById(`badge-total-${item.id}`);
-        if (badgeTotal) badgeTotal.innerText = `Total: ${totalG.toFixed(1)}g`;
+        if (badgeTotal) badgeTotal.innerText = `Total: ${Number(totalG.toFixed(2))}g`;
 
         const badgeStock = document.getElementById(`badge-stock-${item.id}`);
         if (badgeStock) {
@@ -748,7 +842,7 @@ function actualizarCalculosColores(rebuildDOM = false) {
     const totalEncargoG = sumaGramosTirada * tiradas;
 
     const gTiradaInput = document.getElementById('calc-g-tirada');
-    if (gTiradaInput) gTiradaInput.value = sumaGramosTirada.toFixed(1);
+    if (gTiradaInput) gTiradaInput.value = Number(sumaGramosTirada.toFixed(2));
 
     const coloresInput = document.getElementById('calc-colores');
     if (coloresInput) coloresInput.value = Math.max(1, coloresActivos || calcColoresFilamentos.length);
@@ -757,10 +851,10 @@ function actualizarCalculosColores(rebuildDOM = false) {
     if (precioKgInput) precioKgInput.value = precioMedioKg.toFixed(2);
 
     const sumGEl = document.getElementById('calc-colores-sum-g-tirada');
-    if (sumGEl) sumGEl.innerText = `${sumaGramosTirada.toFixed(1)} g`;
+    if (sumGEl) sumGEl.innerText = `${Number(sumaGramosTirada.toFixed(2))} g`;
 
     const sumTotalEl = document.getElementById('calc-colores-sum-g-total');
-    if (sumTotalEl) sumTotalEl.innerText = `${totalEncargoG.toFixed(1)} g`;
+    if (sumTotalEl) sumTotalEl.innerText = `${Number(totalEncargoG.toFixed(2))} g`;
 
     const avgPrecioEl = document.getElementById('calc-colores-avg-precio');
     if (avgPrecioEl) avgPrecioEl.innerText = `${precioMedioKg.toFixed(2)} €/kg`;
@@ -1811,13 +1905,14 @@ function renderBalanceChart() {
     balanceChart = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: ['Ingresos Cobrados', 'Gastos Material', 'Dinero Neto en Mano'],
+            labels: ['Ingresos Cobrados', 'Gastos Filamentos/Mat.', 'Gastos Maq./Repuestos', 'Neto Operativo'],
             datasets: [
                 {
                     label: 'Pablo',
                     data: [
                         balanceData.ingresos.cobrado_pablo,
                         balanceData.gastos_material.pablo,
+                        balanceData.gastos_maquinaria.pablo,
                         balanceData.liquidacion.dinero_neto_pablo
                     ],
                     backgroundColor: 'rgba(59, 130, 246, 0.7)',
@@ -1829,6 +1924,7 @@ function renderBalanceChart() {
                     data: [
                         balanceData.ingresos.cobrado_javi,
                         balanceData.gastos_material.javi,
+                        balanceData.gastos_maquinaria.javi,
                         balanceData.liquidacion.dinero_neto_javi
                     ],
                     backgroundColor: 'rgba(34, 197, 94, 0.7)',
@@ -1857,6 +1953,314 @@ function renderBalanceChart() {
             }
         }
     });
+}
+
+// --- PANEL DE RENTABILIDAD Y ESTADÍSTICAS AVANZADAS ---
+function updateEstadisticasUI() {
+    if (!estadisticasData) return;
+    const k = estadisticasData.kpis || {};
+
+    const ticketEl = document.getElementById('stat-ticket-medio');
+    if (ticketEl) ticketEl.innerText = `${(k.ticket_medio || 0).toFixed(2)} €`;
+
+    const piezasEl = document.getElementById('stat-total-piezas');
+    if (piezasEl) piezasEl.innerText = `${k.total_piezas_fabricadas || 0} uds`;
+
+    const margenEl = document.getElementById('stat-margen-pct');
+    if (margenEl) margenEl.innerText = `${(k.margen_neto_pct || 0).toFixed(1)} %`;
+
+    const valorStockEl = document.getElementById('stat-valor-stock');
+    if (valorStockEl) valorStockEl.innerText = `${(k.valor_inventario_eur || 0).toFixed(2)} €`;
+
+    const kgBadgeEl = document.getElementById('stat-kg-totales-badge');
+    if (kgBadgeEl) kgBadgeEl.innerText = `${(k.kg_stock_disponible || 0).toFixed(2)} kg en stock`;
+
+    // Ranking Top 5 Pedidos
+    const topContainer = document.getElementById('top-pedidos-rentables-list');
+    if (topContainer && Array.isArray(estadisticasData.top_pedidos)) {
+        topContainer.innerHTML = '';
+        const medallas = ['🥇', '🥈', '🥉', '4º', '5º'];
+        estadisticasData.top_pedidos.forEach((p, idx) => {
+            const card = document.createElement('div');
+            card.className = 'p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 flex flex-col justify-between space-y-2';
+            const socioTag = p.quien_hace === 'P' ? 'Pablo' : (p.quien_hace === 'J' ? 'Javi' : 'Taller');
+            const socioColor = p.quien_hace === 'P' ? 'text-blue-400' : (p.quien_hace === 'J' ? 'text-emerald-400' : 'text-purple-400');
+            card.innerHTML = `
+                <div>
+                    <div class="flex items-center justify-between text-xs mb-1">
+                        <span class="font-bold text-amber-400">${medallas[idx] || '#' + (idx + 1)} #${p.id}</span>
+                        <span class="text-[10px] font-semibold ${socioColor}">${socioTag}</span>
+                    </div>
+                    <p class="font-bold text-white text-xs truncate" title="${p.titulo}">${p.titulo}</p>
+                    <p class="text-[11px] text-slate-400 truncate">${p.cliente} • ${p.unidades} uds</p>
+                </div>
+                <div class="pt-2 border-t border-slate-800/60 flex items-center justify-between text-xs font-mono">
+                    <span class="text-slate-400">${p.precio_total.toFixed(0)}€</span>
+                    <span class="font-bold text-emerald-400">+${p.beneficio.toFixed(2)}€ neto</span>
+                </div>
+            `;
+            topContainer.appendChild(card);
+        });
+    }
+
+    if (currentTab === 'balance') {
+        renderEstadisticasCharts();
+    }
+}
+
+function renderEstadisticasCharts() {
+    if (!estadisticasData) return;
+
+    // 1. Gráfica de Evolución Mensual
+    const ctxEvo = document.getElementById('chart-evolucion-mensual')?.getContext('2d');
+    if (ctxEvo && Array.isArray(estadisticasData.evolucion_mensual)) {
+        if (evolucionMensualChart) evolucionMensualChart.destroy();
+        const evo = estadisticasData.evolucion_mensual;
+        evolucionMensualChart = new Chart(ctxEvo, {
+            type: 'bar',
+            data: {
+                labels: evo.map(m => m.mes_label),
+                datasets: [
+                    {
+                        label: 'Facturación Total (€)',
+                        data: evo.map(m => m.facturacion),
+                        backgroundColor: 'rgba(99, 102, 241, 0.65)',
+                        borderColor: 'rgb(99, 102, 241)',
+                        borderWidth: 1,
+                        borderRadius: 6
+                    },
+                    {
+                        label: 'Beneficio Neto (€)',
+                        data: evo.map(m => m.beneficio),
+                        backgroundColor: 'rgba(16, 185, 129, 0.75)',
+                        borderColor: 'rgb(16, 185, 129)',
+                        borderWidth: 1,
+                        borderRadius: 6
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { labels: { color: '#cbd5e1', font: { size: 11 } } }
+                },
+                scales: {
+                    x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+                    y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } }
+                }
+            }
+        });
+    }
+
+    // 2. Gráfica de Stock por Colores Reales
+    const ctxCol = document.getElementById('chart-stock-colores')?.getContext('2d');
+    if (ctxCol && Array.isArray(estadisticasData.stock_colores)) {
+        if (stockColoresChart) stockColoresChart.destroy();
+        const topStock = estadisticasData.stock_colores.slice(0, 10);
+        stockColoresChart = new Chart(ctxCol, {
+            type: 'bar',
+            data: {
+                labels: topStock.map(s => s.color),
+                datasets: [
+                    {
+                        label: 'Gramos disponibles (g)',
+                        data: topStock.map(s => s.stock_total_g),
+                        backgroundColor: topStock.map(s => s.color_hex || '#64748b'),
+                        borderColor: 'rgba(255, 255, 255, 0.35)',
+                        borderWidth: 1,
+                        borderRadius: 6
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: { ticks: { color: '#cbd5e1', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+                    y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } }
+                }
+            }
+        });
+    }
+}
+
+// --- LECTOR AUTOMÁTICO DE ARCHIVOS .3MF / .GCODE (BAMBU STUDIO / ORCASLICER) ---
+function handleSlicerDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const dz = document.getElementById('slicer-dropzone');
+    if (dz) dz.classList.add('border-emerald-400', 'bg-emerald-950/30');
+}
+
+function handleSlicerDragLeave(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const dz = document.getElementById('slicer-dropzone');
+    if (dz) dz.classList.remove('border-emerald-400', 'bg-emerald-950/30');
+}
+
+function handleSlicerDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    handleSlicerDragLeave(e);
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        procesarArchivoSlicer(e.dataTransfer.files[0]);
+    }
+}
+
+function handleSlicerFileSelect(e) {
+    if (e.target.files && e.target.files.length > 0) {
+        procesarArchivoSlicer(e.target.files[0]);
+        e.target.value = '';
+    }
+}
+
+let lastSlicerData = null;
+let lastSlicerFileName = '';
+
+function aplicarDatosCamaSlicer(camaData, fullData, fileName) {
+    const statusEl = document.getElementById('slicer-parse-status');
+
+    // Actualizar piezas por cama si se detectaron objetos en la placa
+    const piezasTiradaEl = document.getElementById('calc-piezas-tirada');
+    if (piezasTiradaEl && camaData.piezas_detectadas > 0) {
+        piezasTiradaEl.value = camaData.piezas_detectadas;
+    }
+
+    // Actualizar tiempo de impresión por tirada
+    const minEl = document.getElementById('calc-min-tirada-3d');
+    if (minEl && camaData.min_por_tirada_3d > 0) {
+        minEl.value = Math.round(camaData.min_por_tirada_3d);
+    }
+
+    // Rellenar automáticamente la lista de colores y filamentos en stock
+    if (Array.isArray(camaData.filamentos) && camaData.filamentos.length > 0) {
+        calcColoresFilamentos = camaData.filamentos.map((f, idx) => ({
+            id: 'col_' + Date.now() + '_' + idx,
+            stock_id: parseInt(f.stock_match_id || (stockData[0]?.id || 0)),
+            gramos_tirada: parseFloat(f.gramos) || 0.1
+        }));
+        renderFilasColorCalculadora();
+        actualizarCalculosColores();
+    }
+
+    if (statusEl) {
+        const notaModo = fullData.es_estimacion_malla
+            ? ' (Incluye modelo, desechos de purga y torre)'
+            : ' (Datos exactos de G-code laminado)';
+
+        const boquillaMm = camaData.boquilla_mm || fullData.boquilla_mm || 0.4;
+        const capaMm = camaData.altura_capa_mm || fullData.altura_capa_mm || 0.2;
+        const tipoPlaca = camaData.tipo_placa || fullData.tipo_placa || '';
+        const badgeHardware = `<div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span class="px-2 py-0.5 rounded bg-indigo-950/90 border border-indigo-500/40 text-indigo-200 font-mono">🔩 Boquilla: <strong>${boquillaMm} mm</strong></span>
+            <span class="px-2 py-0.5 rounded bg-indigo-950/90 border border-indigo-500/40 text-indigo-200 font-mono">📏 Capa: <strong>${capaMm} mm</strong></span>
+            ${tipoPlaca ? `<span class="px-2 py-0.5 rounded bg-slate-800 border border-slate-600 text-slate-200 font-mono">🛏️ ${tipoPlaca}</span>` : ''}
+            <span class="px-2 py-0.5 rounded bg-slate-800 border border-slate-600 text-slate-200 font-mono">📦 Objetos en cama: <strong>${camaData.piezas_detectadas || 1}</strong></span>
+        </div>`;
+
+        let selectorCamasHtml = '';
+        if (Array.isArray(fullData.camas) && fullData.camas.length > 1) {
+            const activeId = String(camaData.plate_id ?? fullData.cama_activa_id ?? fullData.camas[0].plate_id);
+            const optionsHtml = fullData.camas.map(c => {
+                const isSel = String(c.plate_id) === activeId ? 'selected' : '';
+                return `<option value="${c.plate_id}" ${isSel}>${c.nombre} — ${c.g_por_tirada}g • ${c.tiempo_str} (${c.piezas_detectadas} obj)</option>`;
+            }).join('');
+            selectorCamasHtml = `<div class="mt-2 p-2 rounded-lg bg-slate-900/90 border border-emerald-500/40 flex flex-wrap items-center gap-2">
+                <label class="text-[11px] font-bold text-emerald-300 uppercase tracking-wider">🛏️ Cama / Placa (${fullData.num_camas} detectadas):</label>
+                <select onchange="cambiarCamaSlicer(this.value)" class="bg-slate-800 text-white text-xs rounded px-2.5 py-1 border border-slate-600 focus:border-emerald-400 outline-none font-semibold">
+                    ${optionsHtml}
+                </select>
+            </div>`;
+        }
+
+        const detalleColores = (camaData.filamentos || [])
+            .map(f => {
+                const extraInfo = (f.desechos_g || f.torre_g)
+                    ? ` <span class="text-slate-400 font-normal">(Mod: ${f.modelo_g}g | Purga: ${f.desechos_g}g | Torre: ${f.torre_g}g)</span>`
+                    : '';
+                return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900/90 border border-slate-700 text-[11px]"><span class="w-2.5 h-2.5 rounded-full inline-block border border-white/20" style="background:${f.color_hex}"></span>F${f.slicer_id}: <strong>${f.gramos}g</strong>${extraInfo}</span>`;
+            })
+            .join(' ');
+
+        let barraDesglose = '';
+        if (camaData.desglose_peso && (camaData.desglose_peso.desechos_g > 0 || camaData.desglose_peso.torre_g > 0 || camaData.desglose_peso.soporte_g > 0)) {
+            const dp = camaData.desglose_peso;
+            barraDesglose = `<div class="mt-1 text-[11px] text-amber-300/90 font-mono">🧩 Modelo: <strong>${dp.modelo_g}g</strong>${dp.soporte_g > 0 ? ` • 🏗️ Soporte: <strong>${dp.soporte_g}g</strong>` : ''} • 🗑️ Desechos (Expulsado): <strong>${dp.desechos_g}g</strong> • 🗼 Torre: <strong>${dp.torre_g}g</strong> • 🔄 Cambios: <strong>${dp.cambios_filamento}</strong></div>`;
+        }
+
+        statusEl.innerHTML = `✅ <strong>${fileName}</strong>${notaModo}: <strong>${camaData.g_por_tirada}g</strong> en <strong>${camaData.colores} color(es)</strong> • ⏱️ <strong>${camaData.tiempo_str}</strong>${badgeHardware}${selectorCamasHtml}${barraDesglose}<div class="mt-1.5 flex flex-wrap gap-1.5">${detalleColores}</div>`;
+    }
+}
+
+function cambiarCamaSlicer(plateId) {
+    if (!lastSlicerData || !Array.isArray(lastSlicerData.camas)) return;
+    const cama = lastSlicerData.camas.find(c => String(c.plate_id) === String(plateId));
+    if (!cama) return;
+    lastSlicerData.cama_activa_id = cama.plate_id;
+    aplicarDatosCamaSlicer(cama, lastSlicerData, lastSlicerFileName);
+    mostrarNotificacion(`🛏️ Cambiado a ${cama.nombre}: ${cama.g_por_tirada}g y ${cama.tiempo_str}`);
+}
+
+async function procesarArchivoSlicer(file) {
+    if (!file) return;
+    const statusEl = document.getElementById('slicer-parse-status');
+    if (statusEl) {
+        statusEl.classList.remove('hidden', 'text-red-400');
+        statusEl.classList.add('text-emerald-300');
+        statusEl.innerText = `⏳ Analizando "${file.name}"...`;
+    }
+
+    try {
+        const res = await fetch('/api/calculadora/analizar-archivo', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/octet-stream',
+                'X-Filename': encodeURIComponent(file.name)
+            },
+            body: file
+        });
+
+        const rawText = await res.text();
+        if (!rawText || !rawText.trim()) {
+            throw new Error(`El servidor cortó la conexión (HTTP ${res.status}). Si aún no has actualizado Render con la última versión optimizada, sube los archivos de subir_a_github.`);
+        }
+        let data;
+        try {
+            data = JSON.parse(rawText);
+        } catch (_jsonErr) {
+            throw new Error(`Respuesta inválida del servidor (HTTP ${res.status}). Espera unos segundos y vuelve a intentarlo.`);
+        }
+        if (!res.ok) {
+            throw new Error(data.detail || 'No se pudo leer el archivo');
+        }
+
+        lastSlicerData = data;
+        lastSlicerFileName = file.name;
+
+        // Actualizar nombre del proyecto limpiando signos +
+        const tituloEl = document.getElementById('calc-titulo');
+        if (tituloEl && data.nombre_proyecto) {
+            tituloEl.value = decodeURIComponent(data.nombre_proyecto.replace(/\+/g, ' '));
+        }
+
+        aplicarDatosCamaSlicer(data, data, file.name);
+
+        const extraCamasMsg = (data.num_camas && data.num_camas > 1) ? ` (${data.num_camas} camas detectadas)` : '';
+        mostrarNotificacion(`🤖 Archivo importado: ${data.g_por_tirada}g, boquilla ${data.boquilla_mm || 0.4}mm y ${data.tiempo_str}${extraCamasMsg}`);
+    } catch (err) {
+        console.error('Error analizando archivo slicer:', err);
+        if (statusEl) {
+            statusEl.classList.remove('hidden', 'text-emerald-300');
+            statusEl.classList.add('text-red-400');
+            statusEl.innerText = `⚠️ ${err.message}`;
+        }
+        alert('Error al leer el archivo: ' + err.message);
+    }
 }
 
 // --- NOTIFICACIONES TOAST ---
@@ -1893,12 +2297,22 @@ function updateDbStatusUI() {
     const text = document.getElementById('db-status-text');
     const banner = document.getElementById('db-warning-banner');
 
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
     if (dbStatusData.es_permanente) {
         if (dot) {
             dot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50';
         }
         if (text) text.innerText = 'Nube Permanente (Neon)';
         if (btn) btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors border bg-emerald-950/40 border-emerald-500/30 text-emerald-300 hover:bg-emerald-900/40';
+        if (banner) banner.classList.add('hidden');
+    } else if (isLocalhost) {
+        // En tu PC local, SQLite guarda en database.db en tu disco duro (no se borra nada al reiniciar)
+        if (dot) {
+            dot.className = 'w-2 h-2 rounded-full bg-blue-400 shadow-sm shadow-blue-400/50';
+        }
+        if (text) text.innerText = 'Modo Local (Tu PC)';
+        if (btn) btn.className = 'px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors border bg-blue-950/40 border-blue-500/30 text-blue-300 hover:bg-blue-900/40';
         if (banner) banner.classList.add('hidden');
     } else {
         if (dot) {

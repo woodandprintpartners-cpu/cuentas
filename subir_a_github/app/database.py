@@ -811,16 +811,26 @@ def get_balance_financiero() -> Dict[str, Any]:
         elif "W" in pg:
             gmat_empresa += pr
             
-    # Gastos Maquinaria
+    # Gastos Maquinaria y Repuestos
     gastos_maq = execute_query("SELECT * FROM gastos_maquinaria", fetchall=True) or []
     gmaq_total = 0.0
     gmaq_pablo = 0.0
     gmaq_javi = 0.0
     gmaq_empresa = 0.0
-    
+    grepuestos_total = 0.0
+    gmaquinaria_pura_total = 0.0
+
+    repuestos_keywords = ("boquilla", "recambio", "repuesto", "reparaci", "correa", "extrusor", "hotend", "ventilador", "sensor", "tubo", "ptfe", "lubricante", "cama", "pei", "mantenimiento")
+
     for m in gastos_maq:
         pr = float(m["precio"] or 0)
         gmaq_total += pr
+        concepto_low = str(m.get("concepto") or "").lower()
+        if any(k in concepto_low for k in repuestos_keywords):
+            grepuestos_total += pr
+        else:
+            gmaquinaria_pura_total += pr
+
         pg = str(m["pagado_por"] or "").strip().upper()
         if pg == "P":
             gmaq_pablo += pr
@@ -828,7 +838,14 @@ def get_balance_financiero() -> Dict[str, Any]:
             gmaq_javi += pr
         elif "W" in pg:
             gmaq_empresa += pr
-            
+
+    # Valor actual del stock en taller (filamentos + fornituras)
+    stock_rows = execute_query("SELECT stock_total_g, precio_kg_estimado FROM materiales_stock", fetchall=True) or []
+    forn_rows = execute_query("SELECT cantidad, coste_unitario FROM fornituras", fetchall=True) or []
+    valor_stock_filamentos = sum((float(s.get("stock_total_g") or 0.0) / 1000.0) * float(s.get("precio_kg_estimado") or 20.0) for s in stock_rows)
+    valor_stock_fornituras = sum(float(f.get("cantidad") or 0.0) * float(f.get("coste_unitario") or 0.0) for f in forn_rows)
+    valor_inventario_actual = round(valor_stock_filamentos + valor_stock_fornituras, 2)
+
     # Transferencias y Cuadres entre Socios
     transferencias = execute_query("SELECT * FROM transferencias_socios ORDER BY fecha DESC, id DESC", fetchall=True) or []
     total_transferido_pablo_a_javi = 0.0
@@ -886,10 +903,38 @@ def get_balance_financiero() -> Dict[str, Any]:
             mensaje_liquidacion = f"¡Cuentas al día! Tras compensar {total_transferido_acumulado:.2f} €, ambos socios están exactamente al 50% de beneficios."
         else:
             mensaje_liquidacion = "¡Cuentas al día! Ambos socios están exactamente al 50% de beneficios netos."
-        
+
+    # --- CÁLCULO GLOBAL DE LA EMPRESA (BENEFICIOS MENOS TODOS LOS GASTOS) ---
+    total_cobrado_efectivo = round(cobrado_pablo + cobrado_javi + cobrado_comun, 2)
+    gastos_operativos_total = round(gmat_total + grepuestos_total, 2)  # Filamentos/Materiales + Repuestos/Boquillas
+    gastos_totales_empresa = round(gmat_total + gmaq_total, 2)  # Filamentos + Repuestos + Maquinaria/Equipos
+
+    # 1. Beneficio Operativo del Día a Día (descontando filamentos, materiales y repuestos/reparaciones)
+    beneficio_operativo_facturado = round(total_ingresos - gastos_operativos_total, 2)
+    beneficio_operativo_cobrado = round(total_cobrado_efectivo - gastos_operativos_total, 2)
+    margen_operativo_pct = round((beneficio_operativo_facturado / total_ingresos) * 100.0, 1) if total_ingresos > 0 else 0.0
+
+    # 2. Resultado Neto Global de la Empresa (descontando ABSOLUTAMENTE TODO: Filamentos + Repuestos + Maquinaria)
+    balance_neto_empresa_facturado = round(total_ingresos - gastos_totales_empresa, 2)
+    balance_neto_empresa_cobrado = round(total_cobrado_efectivo - gastos_totales_empresa, 2)
+
+    # 3. Resultado Patrimonial (sumando el valor del stock que hay comprado en estantería)
+    balance_con_stock_facturado = round(balance_neto_empresa_facturado + valor_inventario_actual, 2)
+
+    # 4. Porcentaje de recuperación / amortización de todos los gastos e inversiones
+    pct_recuperacion_inversion = round(min(999.9, (total_ingresos / gastos_totales_empresa) * 100.0), 1) if gastos_totales_empresa > 0 else 100.0
+    falta_para_amortizar_todo = round(max(0.0, gastos_totales_empresa - total_ingresos), 2)
+
+    # 5. Balance histórico por socio (incluyendo su inversión en maquinaria + material)
+    gasto_total_pablo = round(gmat_pablo + gmaq_pablo, 2)
+    gasto_total_javi = round(gmat_javi + gmaq_javi, 2)
+    balance_total_pablo = round(cobrado_pablo - gasto_total_pablo - transferencias_netas, 2)
+    balance_total_javi = round(cobrado_javi - gasto_total_javi + transferencias_netas, 2)
+
     return {
         "ingresos": {
             "total_facturado": round(total_ingresos, 2),
+            "total_cobrado": total_cobrado_efectivo,
             "cobrado_javi": round(cobrado_javi, 2),
             "cobrado_pablo": round(cobrado_pablo, 2),
             "cobrado_comun": round(cobrado_comun, 2),
@@ -903,9 +948,34 @@ def get_balance_financiero() -> Dict[str, Any]:
         },
         "gastos_maquinaria": {
             "total": round(gmaq_total, 2),
+            "repuestos": round(grepuestos_total, 2),
+            "equipos_maquinaria": round(gmaquinaria_pura_total, 2),
             "pablo": round(gmaq_pablo, 2),
             "javi": round(gmaq_javi, 2),
             "empresa": round(gmaq_empresa, 2)
+        },
+        "resultado_empresa": {
+            "total_facturado": round(total_ingresos, 2),
+            "total_cobrado": total_cobrado_efectivo,
+            "pendiente_cobro": round(pendiente_cobro, 2),
+            "gastos_filamentos_material": round(gmat_total, 2),
+            "gastos_repuestos": round(grepuestos_total, 2),
+            "gastos_maquinaria_equipos": round(gmaquinaria_pura_total, 2),
+            "gastos_operativos_total": gastos_operativos_total,
+            "gastos_totales_empresa": gastos_totales_empresa,
+            "beneficio_operativo_facturado": beneficio_operativo_facturado,
+            "beneficio_operativo_cobrado": beneficio_operativo_cobrado,
+            "margen_operativo_pct": margen_operativo_pct,
+            "balance_neto_empresa_facturado": balance_neto_empresa_facturado,
+            "balance_neto_empresa_cobrado": balance_neto_empresa_cobrado,
+            "valor_inventario_actual": valor_inventario_actual,
+            "balance_con_stock_facturado": balance_con_stock_facturado,
+            "pct_recuperacion_inversion": pct_recuperacion_inversion,
+            "falta_para_amortizar_todo": falta_para_amortizar_todo,
+            "gasto_total_pablo": gasto_total_pablo,
+            "gasto_total_javi": gasto_total_javi,
+            "balance_total_pablo": balance_total_pablo,
+            "balance_total_javi": balance_total_javi
         },
         "fondo_indirectos": {
             "total_acumulado": round(total_gastos_indirectos, 2),
@@ -966,4 +1036,112 @@ def save_proyecto_calculadora(nombre: str, datos: dict, resultado: dict) -> Dict
 def delete_proyecto_calculadora(pid: str) -> bool:
     execute_query("DELETE FROM proyectos_calculadora WHERE id = ?", (pid,), commit=True)
     return True
+
+
+# --- ESTADÍSTICAS AVANZADAS Y RENTABILIDAD ---
+MESES_NOMBRES = {
+    "01": "Ene", "02": "Feb", "03": "Mar", "04": "Abr",
+    "05": "May", "06": "Jun", "07": "Jul", "08": "Ago",
+    "09": "Sep", "10": "Oct", "11": "Nov", "12": "Dic"
+}
+
+def get_estadisticas_avanzadas() -> Dict[str, Any]:
+    pedidos = get_all_pedidos()
+    stock = get_all_stock()
+    fornituras = get_all_fornituras()
+
+    total_pedidos = len(pedidos)
+    total_piezas = sum(float(p.get("unidades") or 0) for p in pedidos)
+    total_facturado = sum(float(p.get("precio_total") or 0) for p in pedidos)
+    total_beneficio = sum(float(p.get("beneficio") or 0) for p in pedidos)
+    ticket_medio = (total_facturado / total_pedidos) if total_pedidos > 0 else 0.0
+    margen_pct = ((total_beneficio / total_facturado) * 100.0) if total_facturado > 0 else 0.0
+
+    # Valor de inventario actual
+    valor_filamentos = sum((float(s.get("stock_total_g") or 0) / 1000.0) * float(s.get("precio_kg_estimado") or 20.0) for s in stock)
+    valor_fornituras = sum(float(f.get("cantidad") or 0) * float(f.get("coste_unitario") or 0) for f in fornituras)
+    kg_stock_total = sum(float(s.get("stock_total_g") or 0) for s in stock) / 1000.0
+
+    # Evolución mensual
+    meses_map: Dict[str, Dict[str, Any]] = {}
+    for p in pedidos:
+        fecha_raw = str(p.get("fecha") or "").strip()
+        if len(fecha_raw) >= 7 and fecha_raw[:4].isdigit() and fecha_raw[5:7].isdigit():
+            ym = fecha_raw[:7]
+            y, m = ym.split("-")
+            label = f"{MESES_NOMBRES.get(m, m)} {y}"
+        else:
+            ym = "0000-00"
+            label = "Base Inicial"
+
+        if ym not in meses_map:
+            meses_map[ym] = {
+                "mes_key": ym,
+                "mes_label": label,
+                "facturacion": 0.0,
+                "beneficio": 0.0,
+                "pedidos": 0,
+                "piezas": 0
+            }
+        meses_map[ym]["facturacion"] = round(meses_map[ym]["facturacion"] + float(p.get("precio_total") or 0), 2)
+        meses_map[ym]["beneficio"] = round(meses_map[ym]["beneficio"] + float(p.get("beneficio") or 0), 2)
+        meses_map[ym]["pedidos"] += 1
+        meses_map[ym]["piezas"] += int(float(p.get("unidades") or 0))
+
+    evolucion_mensual = [meses_map[k] for k in sorted(meses_map.keys())]
+
+    # Top 5 pedidos más rentables
+    pedidos_ordenados = sorted(pedidos, key=lambda x: float(x.get("beneficio") or 0), reverse=True)
+    top_pedidos = [
+        {
+            "id": p.get("id"),
+            "titulo": p.get("titulo"),
+            "cliente": p.get("cliente") or "Particular",
+            "unidades": int(float(p.get("unidades") or 1)),
+            "precio_total": round(float(p.get("precio_total") or 0), 2),
+            "beneficio": round(float(p.get("beneficio") or 0), 2),
+            "quien_hace": p.get("quien_hace") or "J"
+        }
+        for p in pedidos_ordenados[:5]
+    ]
+
+    # Stock por colores (ordenado de mayor a menor gramos disponibles)
+    stock_colores = [
+        {
+            "id": s.get("id"),
+            "nombre": f"{s.get('tipo')} {s.get('color')}",
+            "tipo": s.get("tipo"),
+            "color": s.get("color"),
+            "color_hex": s.get("color_hex") or "#64748b",
+            "stock_total_g": round(float(s.get("stock_total_g") or 0), 0),
+            "pablo_g": round(float(s.get("pablo_g") or 0), 0),
+            "javi_g": round(float(s.get("javi_g") or 0), 0)
+        }
+        for s in sorted(stock, key=lambda x: float(x.get("stock_total_g") or 0), reverse=True)
+    ]
+
+    # Reparto de producción (quién fabrica)
+    prod_javi = sum(float(p.get("precio_total") or 0) for p in pedidos if str(p.get("quien_hace", "")).upper() == "J")
+    prod_pablo = sum(float(p.get("precio_total") or 0) for p in pedidos if str(p.get("quien_hace", "")).upper() == "P")
+    prod_ambos = sum(float(p.get("precio_total") or 0) for p in pedidos if str(p.get("quien_hace", "")).upper() not in ("J", "P"))
+
+    return {
+        "kpis": {
+            "total_pedidos": total_pedidos,
+            "total_piezas_fabricadas": int(total_piezas),
+            "ticket_medio": round(ticket_medio, 2),
+            "margen_neto_pct": round(margen_pct, 1),
+            "valor_inventario_eur": round(valor_filamentos + valor_fornituras, 2),
+            "kg_stock_disponible": round(kg_stock_total, 2)
+        },
+        "evolucion_mensual": evolucion_mensual,
+        "top_pedidos": top_pedidos,
+        "stock_colores": stock_colores,
+        "reparto_produccion": {
+            "javi_eur": round(prod_javi, 2),
+            "pablo_eur": round(prod_pablo, 2),
+            "ambos_eur": round(prod_ambos, 2)
+        }
+    }
+
 

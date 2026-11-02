@@ -1,13 +1,16 @@
 import os
 import io
+import gc
+import tempfile
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import StreamingResponse
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-from app.calculator import CalculoEntrada, CalculoResultado, calcular_presupuesto
+from app.calculator import CalculoEntrada, CalculoResultado, calcular_presupuesto, analizar_archivo_slicer
 from app.database import (
     init_db,
     get_all_pedidos,
@@ -35,6 +38,7 @@ from app.database import (
     add_transferencia,
     delete_transferencia,
     get_balance_financiero,
+    get_estadisticas_avanzadas,
     get_all_proyectos_calculadora,
     save_proyecto_calculadora,
     delete_proyecto_calculadora,
@@ -83,6 +87,34 @@ def api_save_proyecto_calc(datos: dict):
 def api_delete_proyecto_calc(pid: str):
     delete_proyecto_calculadora(pid)
     return {"status": "ok", "deleted": pid}
+
+@app.post("/api/calculadora/analizar-archivo")
+async def api_analizar_archivo_slicer(request: Request):
+    filename = request.headers.get("X-Filename", "proyecto.3mf")
+    spool = tempfile.SpooledTemporaryFile(max_size=4 * 1024 * 1024, mode="w+b")
+    try:
+        total_bytes = 0
+        async for chunk in request.stream():
+            if chunk:
+                spool.write(chunk)
+                total_bytes += len(chunk)
+        if total_bytes == 0:
+            raise HTTPException(status_code=400, detail="El archivo está vacío.")
+        spool.seek(0)
+        stock_items = get_all_stock()
+        return await run_in_threadpool(analizar_archivo_slicer, filename, spool, stock_items)
+    except HTTPException:
+        raise
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al procesar el archivo: {e}")
+    finally:
+        try:
+            spool.close()
+        except Exception:
+            pass
+        gc.collect()
 
 # --- API PEDIDOS ---
 @app.get("/api/pedidos")
@@ -220,10 +252,14 @@ def api_delete_gasto_maquinaria(gasto_id: int):
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
     return {"status": "ok"}
 
-# --- API BALANCE ---
+# --- API BALANCE Y ESTADÍSTICAS ---
 @app.get("/api/balance")
 def api_get_balance():
     return get_balance_financiero()
+
+@app.get("/api/estadisticas")
+def api_get_estadisticas():
+    return get_estadisticas_avanzadas()
 
 # --- API TRANSFERENCIAS Y CUADRES ENTRE SOCIOS ---
 @app.get("/api/transferencias")

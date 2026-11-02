@@ -245,8 +245,9 @@ def calcular_presupuesto(p: CalculoEntrada) -> CalculoResultado:
     min_diseno = (p.tiempo_diseno_3d_h + (p.tiempo_diseno_laser_h if p.incluir_laser else 0.0)) * 60.0
     min_totales = min_maquina + min_cambio + min_diseno
     
-    horas_ent = int(min_totales // 60)
-    mins_rem = int(min_totales % 60)
+    tot_m = int(round(min_totales))
+    horas_ent = tot_m // 60
+    mins_rem = tot_m % 60
     tiempo_formato_str = f"{horas_ent} h {mins_rem} min" if min_totales > 0 else "0 min"
     
     rendimiento = (precio_con_descuento / min_totales) * 60.0 if min_totales > 0 else 0.0
@@ -494,8 +495,9 @@ def _decode_bambu_paint_extruder(paint_str: str, default_ext: int) -> int:
 
 
 def _format_minutes_str(mins: float) -> str:
-    h_int = int(mins // 60)
-    m_int = int(mins % 60)
+    total_m = int(round(mins))
+    h_int = total_m // 60
+    m_int = total_m % 60
     return f"{h_int}h {m_int}m" if h_int > 0 else f"{m_int} min"
 
 
@@ -1127,7 +1129,7 @@ def _estimar_desde_3mf_sin_laminar(zf: zipfile.ZipFile) -> Dict[str, Any]:
         fils_todas = [agg_fils[k] for k in sorted(agg_fils.keys())]
         tot_g_todas = round(sum(x["gramos"] for x in fils_todas), 2)
         lbl_todas = f"📦 Todas las camas juntas ({len(plates_definitions)} camas)"
-        camas_ordenadas.append({
+        cama_todas_dict = {
             "plate_id": "todas",
             "nombre": lbl_todas,
             "nombre_cama": lbl_todas,
@@ -1150,7 +1152,9 @@ def _estimar_desde_3mf_sin_laminar(zf: zipfile.ZipFile) -> Dict[str, Any]:
                 "soporte_g": round(agg_sop, 2),
                 "cambios_filamento": agg_swp
             }
-        })
+        }
+        camas_ordenadas.append(cama_todas_dict)
+        cama_activa = cama_todas_dict
 
     return {
         "filamentos": cama_activa["filamentos"],
@@ -1219,35 +1223,209 @@ def analizar_archivo_slicer(filename: str, content: Union[bytes, BinaryIO], stoc
             with zipfile.ZipFile(file_obj, "r") as zf:
                 names = zf.namelist()
 
+                # Nombres de camas y metadatos de placas auxiliares
+                plate_names_map: Dict[str, str] = {}
+                model_cfg_list = [n for n in names if n.lower().endswith("model_settings.config")]
+                if model_cfg_list:
+                    try:
+                        ms_root = ET.fromstring(zf.read(model_cfg_list[0]))
+                        for idx_p, plate_el in enumerate(ms_root.findall(".//plate")):
+                            p_id = str(idx_p + 1)
+                            p_name = ""
+                            for m in plate_el.findall("metadata"):
+                                if m.attrib.get("key") == "plater_id" and m.attrib.get("value"):
+                                    p_id = str(m.attrib.get("value"))
+                                elif m.attrib.get("key") == "plater_name" and m.attrib.get("value"):
+                                    p_name = str(m.attrib.get("value")).strip()
+                            if p_name:
+                                plate_names_map[p_id] = p_name
+                    except Exception:
+                        pass
+
+                plate_json_info: Dict[str, Dict[str, Any]] = {}
+                for n in names:
+                    m_pj = re.search(r"plate_(\d+)\.json$", n, re.IGNORECASE)
+                    if m_pj:
+                        pid_str = m_pj.group(1)
+                        try:
+                            pdata = json.loads(zf.read(n).decode("utf-8", errors="ignore"))
+                            p_lh = altura_capa_mm
+                            for bo in pdata.get("bbox_objects", []):
+                                lh_bo = float(bo.get("layer_height", 0.0) or 0.0)
+                                if lh_bo > 0.02:
+                                    p_lh = round(lh_bo, 2)
+                            p_noz = round(float(pdata.get("nozzle_diameter", boquilla_mm) or boquilla_mm), 2)
+                            plate_json_info[pid_str] = {
+                                "layer_height": p_lh,
+                                "nozzle_diameter": p_noz,
+                                "bed_type": str(pdata.get("bed_type", tipo_placa) or tipo_placa)
+                            }
+                        except Exception:
+                            pass
+
                 # 1. Intentar leer Metadata/slice_info.config (Bambu Studio / OrcaSlicer .gcode.3mf)
                 slice_cfg_list = [n for n in names if n.lower().endswith("slice_info.config")]
                 if slice_cfg_list:
                     try:
                         xml_bytes = zf.read(slice_cfg_list[0])
                         root = ET.fromstring(xml_bytes)
-                        for elem in root.iter():
-                            tag = elem.tag.split("}")[-1].lower()
-                            if tag == "metadata":
-                                k = elem.attrib.get("key", "").lower()
-                                v = elem.attrib.get("value", "")
-                                if k == "prediction" and v:
-                                    minutos_impresion = _parse_time_to_minutes(v)
-                                elif k == "nozzle_diameters" and v:
+                        plates_xml = root.findall(".//plate")
+                        if plates_xml:
+                            camas_lista = []
+                            agg_fils: Dict[int, Dict[str, Any]] = {}
+                            agg_min = 0.0
+                            agg_objs = 0
+
+                            for idx_p, p_el in enumerate(plates_xml):
+                                meta = {m.attrib.get("key", "").lower(): m.attrib.get("value", "") for m in p_el.findall("metadata")}
+                                p_idx_str = str(meta.get("index", idx_p + 1))
+                                pred_s = meta.get("prediction", "0")
+                                p_min = _parse_time_to_minutes(pred_s)
+                                p_w = float(meta.get("weight", "0.0") or 0.0)
+
+                                p_noz = boquilla_mm
+                                if "nozzle_diameters" in meta and meta["nozzle_diameters"]:
                                     try:
-                                        boquilla_mm = round(float(v.split(",")[0]), 2)
+                                        p_noz = round(float(meta["nozzle_diameters"].split(",")[0]), 2)
                                     except Exception:
                                         pass
-                            elif tag == "filament":
-                                used_g = float(elem.attrib.get("used_g", 0.0) or 0.0)
-                                if used_g > 0.01:
-                                    filamentos_detectados.append({
-                                        "slicer_id": int(elem.attrib.get("id", len(filamentos_detectados) + 1)),
-                                        "tipo": elem.attrib.get("type", "PLA") or "PLA",
-                                        "color_hex": _normalize_hex(elem.attrib.get("color", "#64748b")),
-                                        "gramos": round(used_g, 2)
-                                    })
-                            elif tag == "object":
-                                piezas_detectadas += 1
+
+                                pj_info = plate_json_info.get(p_idx_str, {})
+                                p_lh = pj_info.get("layer_height", altura_capa_mm)
+                                p_bed = pj_info.get("bed_type", tipo_placa)
+                                if pj_info.get("nozzle_diameter"):
+                                    p_noz = pj_info["nozzle_diameter"]
+
+                                objs = [
+                                    o.attrib.get("name", "Objeto")
+                                    for o in p_el.findall("object")
+                                    if str(o.attrib.get("skipped", "false")).lower() not in ("true", "1")
+                                ]
+                                p_objs_count = max(1, len(objs))
+
+                                p_fils = []
+                                for f in p_el.findall("filament"):
+                                    ug = float(f.attrib.get("used_g", 0.0) or 0.0)
+                                    if ug > 0.001:
+                                        p_fils.append({
+                                            "slicer_id": int(f.attrib.get("id", len(p_fils) + 1)),
+                                            "tipo": f.attrib.get("type", "PLA") or "PLA",
+                                            "color_hex": _normalize_hex(f.attrib.get("color", "#64748b")),
+                                            "gramos": round(ug, 2)
+                                        })
+
+                                p_tot_g = round(sum(x["gramos"] for x in p_fils), 2) or round(p_w, 2)
+                                p_name_custom = plate_names_map.get(p_idx_str, "")
+                                lbl_cama = f"Cama {p_idx_str}" + (f" ({p_name_custom})" if p_name_custom and p_name_custom.lower() not in (f"plate-{p_idx_str}", f"plate_{p_idx_str}") else "")
+
+                                cama_obj = {
+                                    "plate_id": p_idx_str,
+                                    "nombre": lbl_cama,
+                                    "nombre_cama": lbl_cama,
+                                    "filamentos": p_fils,
+                                    "g_por_tirada": p_tot_g,
+                                    "colores": max(1, len(p_fils)),
+                                    "minutos": round(p_min, 1),
+                                    "min_por_tirada_3d": round(p_min, 1),
+                                    "tiempo_str": _format_minutes_str(round(p_min, 1)),
+                                    "objetos": p_objs_count,
+                                    "piezas_detectadas": p_objs_count,
+                                    "boquilla_mm": p_noz,
+                                    "altura_capa_mm": p_lh,
+                                    "tipo_placa": p_bed,
+                                    "desglose_peso": {
+                                        "modelo_g": p_tot_g,
+                                        "desechos_g": 0.0,
+                                        "torre_g": 0.0,
+                                        "soporte_g": 0.0,
+                                        "cambios_filamento": 0
+                                    }
+                                }
+                                camas_lista.append(cama_obj)
+
+                                agg_min += p_min
+                                agg_objs += p_objs_count
+                                for f in p_fils:
+                                    sid = f["slicer_id"]
+                                    if sid not in agg_fils:
+                                        agg_fils[sid] = dict(f)
+                                    else:
+                                        agg_fils[sid]["gramos"] = round(agg_fils[sid]["gramos"] + f["gramos"], 2)
+
+                            total_fils_found = sum(len(c["filamentos"]) for c in camas_lista)
+                            if total_fils_found > 0 or agg_min > 0:
+                                if len(camas_lista) > 1:
+                                    fils_todas = [agg_fils[k] for k in sorted(agg_fils.keys())]
+                                    tot_g_todas = round(sum(x["gramos"] for x in fils_todas), 2)
+                                    lbl_todas = f"📦 Todas las camas juntas ({len(camas_lista)} camas)"
+                                    cama_todas = {
+                                        "plate_id": "todas",
+                                        "nombre": lbl_todas,
+                                        "nombre_cama": lbl_todas,
+                                        "filamentos": fils_todas,
+                                        "g_por_tirada": tot_g_todas,
+                                        "colores": max(1, len(fils_todas)),
+                                        "minutos": round(agg_min, 1),
+                                        "min_por_tirada_3d": round(agg_min, 1),
+                                        "tiempo_str": _format_minutes_str(round(agg_min, 1)),
+                                        "objetos": agg_objs,
+                                        "piezas_detectadas": agg_objs,
+                                        "boquilla_mm": camas_lista[0]["boquilla_mm"],
+                                        "altura_capa_mm": camas_lista[0]["altura_capa_mm"],
+                                        "tipo_placa": camas_lista[0]["tipo_placa"],
+                                        "desglose_peso": {
+                                            "modelo_g": tot_g_todas,
+                                            "desechos_g": 0.0,
+                                            "torre_g": 0.0,
+                                            "soporte_g": 0.0,
+                                            "cambios_filamento": 0
+                                        }
+                                    }
+                                    camas_lista.append(cama_todas)
+                                    num_camas = len(plates_xml)
+                                    cama_activa_id = "todas"
+                                    minutos_impresion = round(agg_min, 1)
+                                    filamentos_detectados = fils_todas
+                                    piezas_detectadas = agg_objs
+                                    boquilla_mm = camas_lista[0]["boquilla_mm"]
+                                    altura_capa_mm = camas_lista[0]["altura_capa_mm"]
+                                    tipo_placa = camas_lista[0]["tipo_placa"]
+                                elif len(camas_lista) == 1:
+                                    c_only = camas_lista[0]
+                                    num_camas = 1
+                                    cama_activa_id = c_only["plate_id"]
+                                    minutos_impresion = c_only["minutos"]
+                                    filamentos_detectados = c_only["filamentos"]
+                                    piezas_detectadas = c_only["objetos"]
+                                    boquilla_mm = c_only["boquilla_mm"]
+                                    altura_capa_mm = c_only["altura_capa_mm"]
+                                    tipo_placa = c_only["tipo_placa"]
+                            else:
+                                camas_lista = []
+                        else:
+                            for elem in root.iter():
+                                tag = elem.tag.split("}")[-1].lower()
+                                if tag == "metadata":
+                                    k = elem.attrib.get("key", "").lower()
+                                    v = elem.attrib.get("value", "")
+                                    if k == "prediction" and v:
+                                        minutos_impresion = _parse_time_to_minutes(v)
+                                    elif k == "nozzle_diameters" and v:
+                                        try:
+                                            boquilla_mm = round(float(v.split(",")[0]), 2)
+                                        except Exception:
+                                            pass
+                                elif tag == "filament":
+                                    used_g = float(elem.attrib.get("used_g", 0.0) or 0.0)
+                                    if used_g > 0.01:
+                                        filamentos_detectados.append({
+                                            "slicer_id": int(elem.attrib.get("id", len(filamentos_detectados) + 1)),
+                                            "tipo": elem.attrib.get("type", "PLA") or "PLA",
+                                            "color_hex": _normalize_hex(elem.attrib.get("color", "#64748b")),
+                                            "gramos": round(used_g, 2)
+                                        })
+                                elif tag == "object":
+                                    piezas_detectadas += 1
                     except Exception:
                         pass
 
