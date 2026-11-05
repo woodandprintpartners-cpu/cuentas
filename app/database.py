@@ -154,6 +154,7 @@ def init_db():
             beneficio REAL DEFAULT 0,
             quien_hace TEXT DEFAULT 'J',
             quien_cobra TEXT DEFAULT 'X',
+            estado_realizacion TEXT DEFAULT 'REALIZADO',
             notas TEXT DEFAULT '',
             detalles_json TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -250,10 +251,17 @@ def init_db():
         # Migraciones seguras para bases de datos existentes (Postgres y SQLite)
         try:
             if IS_POSTGRES:
+                c.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS estado_realizacion TEXT DEFAULT 'REALIZADO';")
                 c.execute("ALTER TABLE materiales_stock ADD COLUMN IF NOT EXISTS ubicacion TEXT DEFAULT 'Taller';")
                 c.execute("ALTER TABLE fornituras ADD COLUMN IF NOT EXISTS ubicacion TEXT DEFAULT 'Taller';")
                 conn.commit()
             else:
+                c.execute("PRAGMA table_info(pedidos)")
+                cols_ped = [r[1] if isinstance(r, tuple) else r["name"] for r in c.fetchall()]
+                if "estado_realizacion" not in cols_ped:
+                    c.execute("ALTER TABLE pedidos ADD COLUMN estado_realizacion TEXT DEFAULT 'REALIZADO'")
+                    conn.commit()
+
                 c.execute("PRAGMA table_info(materiales_stock)")
                 cols_stock = [r[1] if isinstance(r, tuple) else r["name"] for r in c.fetchall()]
                 if "ubicacion" not in cols_stock:
@@ -305,8 +313,13 @@ def get_all_pedidos(filtro_estado: Optional[str] = None, query: Optional[str] = 
     params = []
     
     if filtro_estado:
-        sql += " AND UPPER(quien_cobra) = ?"
-        params.append(filtro_estado.upper())
+        if filtro_estado.upper() == "PENDIENTE_REALIZAR":
+            sql += " AND UPPER(COALESCE(estado_realizacion, 'REALIZADO')) = 'PENDIENTE'"
+        elif filtro_estado.upper() == "REALIZADO":
+            sql += " AND UPPER(COALESCE(estado_realizacion, 'REALIZADO')) = 'REALIZADO'"
+        else:
+            sql += " AND UPPER(quien_cobra) = ?"
+            params.append(filtro_estado.upper())
         
     if query:
         sql += " AND (titulo LIKE ? OR cliente LIKE ? OR id LIKE ?)"
@@ -340,11 +353,13 @@ def create_pedido(data: Dict[str, Any]) -> Dict[str, Any]:
     if existing:
         return update_pedido(pid, data)
         
+    estado_realizacion = str(data.get("estado_realizacion", "PENDIENTE")).upper()
+
     sql = """
     INSERT INTO pedidos (
         id, titulo, cliente, fecha, unidades, precio_unidad, precio_total,
-        pct_ci, gastos_indirectos, beneficio, quien_hace, quien_cobra, notas, detalles_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        pct_ci, gastos_indirectos, beneficio, quien_hace, quien_cobra, estado_realizacion, notas, detalles_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     params = (
         pid,
@@ -359,6 +374,7 @@ def create_pedido(data: Dict[str, Any]) -> Dict[str, Any]:
         beneficio,
         str(data.get("quien_hace", "J")).upper(),
         str(data.get("quien_cobra", "X")).upper(),
+        estado_realizacion,
         data.get("notas", ""),
         data.get("detalles_json", "")
     )
@@ -371,11 +387,14 @@ def update_pedido(pedido_id: str, data: Dict[str, Any]) -> Optional[Dict[str, An
     gastos_ind = precio_total * pct_ci
     beneficio = precio_total - gastos_ind
     
+    existing = get_pedido(pedido_id) or {}
+    estado_realizacion = str(data.get("estado_realizacion", existing.get("estado_realizacion", "REALIZADO"))).upper()
+
     sql = """
     UPDATE pedidos SET
         titulo = ?, cliente = ?, fecha = ?, unidades = ?, precio_unidad = ?,
         precio_total = ?, pct_ci = ?, gastos_indirectos = ?, beneficio = ?,
-        quien_hace = ?, quien_cobra = ?, notas = ?
+        quien_hace = ?, quien_cobra = ?, estado_realizacion = ?, notas = ?
     WHERE id = ?
     """
     params = (
@@ -390,10 +409,20 @@ def update_pedido(pedido_id: str, data: Dict[str, Any]) -> Optional[Dict[str, An
         beneficio,
         str(data.get("quien_hace", "J")).upper(),
         str(data.get("quien_cobra", "X")).upper(),
+        estado_realizacion,
         data.get("notas", ""),
         pedido_id
     )
     execute_query(sql, params, commit=True)
+    return get_pedido(pedido_id)
+
+def toggle_pedido_realizado(pedido_id: str) -> Optional[Dict[str, Any]]:
+    p = get_pedido(pedido_id)
+    if not p:
+        return None
+    actual = str(p.get("estado_realizacion") or "REALIZADO").upper()
+    nuevo = "PENDIENTE" if actual == "REALIZADO" else "REALIZADO"
+    execute_query("UPDATE pedidos SET estado_realizacion = ? WHERE id = ?", (nuevo, pedido_id), commit=True)
     return get_pedido(pedido_id)
 
 def delete_pedido(pedido_id: str) -> bool:
@@ -1057,6 +1086,10 @@ def get_estadisticas_avanzadas() -> Dict[str, Any]:
     ticket_medio = (total_facturado / total_pedidos) if total_pedidos > 0 else 0.0
     margen_pct = ((total_beneficio / total_facturado) * 100.0) if total_facturado > 0 else 0.0
 
+    pedidos_pendientes_realizar = sum(1 for p in pedidos if str(p.get("estado_realizacion", "")).upper() == "PENDIENTE")
+    piezas_pendientes_realizar = sum(int(float(p.get("unidades") or 0)) for p in pedidos if str(p.get("estado_realizacion", "")).upper() == "PENDIENTE")
+    pedidos_realizados = sum(1 for p in pedidos if str(p.get("estado_realizacion", "")).upper() != "PENDIENTE")
+
     # Valor de inventario actual
     valor_filamentos = sum((float(s.get("stock_total_g") or 0) / 1000.0) * float(s.get("precio_kg_estimado") or 20.0) for s in stock)
     valor_fornituras = sum(float(f.get("cantidad") or 0) * float(f.get("coste_unitario") or 0) for f in fornituras)
@@ -1129,6 +1162,9 @@ def get_estadisticas_avanzadas() -> Dict[str, Any]:
         "kpis": {
             "total_pedidos": total_pedidos,
             "total_piezas_fabricadas": int(total_piezas),
+            "pedidos_pendientes_realizar": pedidos_pendientes_realizar,
+            "piezas_pendientes_realizar": piezas_pendientes_realizar,
+            "pedidos_realizados": pedidos_realizados,
             "ticket_medio": round(ticket_medio, 2),
             "margen_neto_pct": round(margen_pct, 1),
             "valor_inventario_eur": round(valor_filamentos + valor_fornituras, 2),

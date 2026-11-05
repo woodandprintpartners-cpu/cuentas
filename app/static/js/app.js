@@ -988,6 +988,8 @@ function crearPedidoDesdeCalculo() {
     document.getElementById('form-pedido-unidades').value = piezas;
     document.getElementById('form-pedido-precio-ud').value = precioUd.toFixed(2);
     document.getElementById('form-pedido-precio-total').value = precioTotal.toFixed(2);
+    const estRealEl = document.getElementById('form-pedido-estado-realizacion');
+    if (estRealEl) estRealEl.value = 'PENDIENTE';
     document.getElementById('form-pedido-hace').value = 'J';
     document.getElementById('form-pedido-cobra').value = 'X';
     document.getElementById('form-pedido-notas').value = `Generado desde Calculadora. Tiradas: ${lastCalculoResultado.tiradas_3d}. Tiempo est: ${lastCalculoResultado.tiempo_formato_str}.`;
@@ -1042,19 +1044,96 @@ function copiarPresupuestoWhatsApp() {
 }
 
 // --- GESTIÓN DE PEDIDOS ---
+let currentPedidosFiltro = null;
+let currentPedidosQuery = null;
+
 async function loadPedidos(filtro = null, query = null) {
+    if (filtro !== undefined) currentPedidosFiltro = filtro;
+    if (query !== undefined) currentPedidosQuery = query;
+
     let url = '/api/pedidos';
     const params = [];
-    if (filtro) params.push(`filtro=${encodeURIComponent(filtro)}`);
-    if (query) params.push(`q=${encodeURIComponent(query)}`);
+    if (currentPedidosFiltro) params.push(`filtro=${encodeURIComponent(currentPedidosFiltro)}`);
+    if (currentPedidosQuery) params.push(`q=${encodeURIComponent(currentPedidosQuery)}`);
     if (params.length > 0) url += `?${params.join('&')}`;
 
     try {
         const res = await fetch(url);
         pedidosData = await res.json();
         renderPedidosTable();
+        actualizarKpisPedidos();
     } catch (e) {
         console.error('Error cargando pedidos:', e);
+    }
+}
+
+async function actualizarKpisPedidos() {
+    try {
+        const resAll = await fetch('/api/pedidos');
+        const all = await resAll.json();
+        
+        let pendientesRealizarCount = 0;
+        let piezasPendientesRealizar = 0;
+        let totalCount = all.length;
+        let totalPiezas = 0;
+        let pendienteCobroImporte = 0.0;
+        let pendienteCobroCount = 0;
+        let realizadosCount = 0;
+
+        all.forEach(p => {
+            const est = (p.estado_realizacion || 'REALIZADO').toUpperCase();
+            const uds = parseFloat(p.unidades) || 0;
+            totalPiezas += uds;
+
+            if (est === 'PENDIENTE') {
+                pendientesRealizarCount++;
+                piezasPendientesRealizar += uds;
+            } else {
+                realizadosCount++;
+            }
+
+            if (p.quien_cobra === 'X') {
+                pendienteCobroCount++;
+                pendienteCobroImporte += parseFloat(p.precio_total) || 0.0;
+            }
+        });
+
+        // KPI Cards in Tab 2
+        const elKpiPend = document.getElementById('kpi-pedidos-pendientes-realizar');
+        if (elKpiPend) elKpiPend.innerText = pendientesRealizarCount;
+
+        const elKpiPiezasPend = document.getElementById('kpi-piezas-pendientes-realizar');
+        if (elKpiPiezasPend) elKpiPiezasPend.innerText = `${piezasPendientesRealizar} piezas por fabricar`;
+
+        const elKpiTot = document.getElementById('kpi-pedidos-total');
+        if (elKpiTot) elKpiTot.innerText = totalCount;
+
+        const elKpiPiezasTot = document.getElementById('kpi-piezas-total');
+        if (elKpiPiezasTot) elKpiPiezasTot.innerText = `${totalPiezas} piezas en histórico`;
+
+        const elKpiCobroImp = document.getElementById('kpi-pedidos-pendiente-cobro-importe');
+        if (elKpiCobroImp) elKpiCobroImp.innerText = `${pendienteCobroImporte.toFixed(2)} €`;
+
+        const elKpiCobroCnt = document.getElementById('kpi-pedidos-pendiente-cobro-count');
+        if (elKpiCobroCnt) elKpiCobroCnt.innerText = `${pendienteCobroCount} pedidos sin cobrar`;
+
+        const elKpiReal = document.getElementById('kpi-pedidos-realizados');
+        if (elKpiReal) elKpiReal.innerText = realizadosCount;
+
+        // Quick Stats Header Bar
+        const qPendFab = document.getElementById('quick-pendientes-realizar');
+        if (qPendFab) qPendFab.innerText = pendientesRealizarCount;
+
+        const qPendFabBadge = document.getElementById('quick-pendientes-realizar-badge');
+        if (qPendFabBadge) {
+            if (pendientesRealizarCount > 0) {
+                qPendFabBadge.classList.remove('hidden');
+            } else {
+                qPendFabBadge.classList.add('hidden');
+            }
+        }
+    } catch (e) {
+        console.error('Error calculando KPIs de pedidos:', e);
     }
 }
 
@@ -1063,7 +1142,7 @@ function renderPedidosTable() {
     tbody.innerHTML = '';
 
     if (pedidosData.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-slate-400 italic">No se encontraron pedidos.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-slate-400 italic">No se encontraron pedidos.</td></tr>`;
         return;
     }
 
@@ -1078,6 +1157,7 @@ function renderPedidosTable() {
         else if (p.quien_cobra === 'W') { badgeCobraClass = 'badge-empresa'; badgeCobraText = 'Empresa (W)'; }
 
         let badgeHaceText = p.quien_hace === 'J' ? 'Javi' : (p.quien_hace === 'P' ? 'Pablo' : 'Ambos (W)');
+        const esPendienteRealizar = (p.estado_realizacion || 'REALIZADO').toUpperCase() === 'PENDIENTE';
 
         tr.innerHTML = `
             <td class="py-3 px-4 font-mono font-bold text-slate-300">#${p.id}</td>
@@ -1088,6 +1168,13 @@ function renderPedidosTable() {
             <td class="py-3 px-4 text-center font-semibold text-slate-200">${p.unidades}</td>
             <td class="py-3 px-4 text-right text-slate-300">${p.precio_unidad ? p.precio_unidad.toFixed(2) + ' €' : '-'}</td>
             <td class="py-3 px-4 text-right font-bold text-emerald-400">${p.precio_total ? p.precio_total.toFixed(2) + ' €' : '0.00 €'}</td>
+            <td class="py-3 px-4 text-center">
+                <button onclick="toggleEstadoRealizado('${p.id}')" title="Clic para alternar: Pendiente / Realizado" class="px-2.5 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 mx-auto ${esPendienteRealizar ? 'bg-amber-950/80 border border-amber-500/50 text-amber-300 hover:bg-amber-900 shadow-sm shadow-amber-950/40' : 'bg-emerald-950/60 border border-emerald-600/30 text-emerald-400 hover:bg-emerald-900/60'}">
+                    ${esPendienteRealizar 
+                        ? '<span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>⏳ Pendiente' 
+                        : '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>Realizado'}
+                </button>
+            </td>
             <td class="py-3 px-4 text-center">
                 <span class="px-2 py-0.5 rounded text-xs font-semibold ${p.quien_hace === 'J' ? 'text-emerald-400 bg-emerald-950/60' : (p.quien_hace === 'P' ? 'text-blue-400 bg-blue-950/60' : 'text-purple-400 bg-purple-950/60')}">
                     ${badgeHaceText}
@@ -1113,6 +1200,23 @@ function renderPedidosTable() {
     });
 }
 
+// Quick toggle fabrication status
+async function toggleEstadoRealizado(id) {
+    try {
+        const res = await fetch(`/api/pedidos/${id}/toggle-realizado`, {
+            method: 'PUT'
+        });
+        if (res.ok) {
+            const updated = await res.json();
+            const esPend = (updated.estado_realizacion || '').toUpperCase() === 'PENDIENTE';
+            mostrarNotificacion(`Pedido #${id}: ${esPend ? '⏳ Marcado como Pendiente de Realizar' : '✅ Marcado como Realizado'}`);
+            await loadPedidos(currentPedidosFiltro, currentPedidosQuery);
+        }
+    } catch (e) {
+        console.error('Error al alternar estado de fabricación:', e);
+    }
+}
+
 // Quick toggle payment status
 async function toggleEstadoCobro(id, actual) {
     const orden = ['X', 'J', 'P', 'W'];
@@ -1132,6 +1236,7 @@ async function toggleEstadoCobro(id, actual) {
 
         await loadBalance();
         renderPedidosTable();
+        actualizarKpisPedidos();
         mostrarNotificacion(`Pedido #${id} actualizado: ${nuevo === 'X' ? 'Pendiente' : (nuevo === 'J' ? 'Cobró Javi' : (nuevo === 'P' ? 'Cobró Pablo' : 'Empresa'))}`);
     } catch (e) {
         console.error('Error actualizando cobro:', e);
@@ -1170,6 +1275,8 @@ function abrirModalNuevoPedido() {
     document.getElementById('form-pedido-unidades').value = '1';
     document.getElementById('form-pedido-precio-ud').value = '0.00';
     document.getElementById('form-pedido-precio-total').value = '0.00';
+    const estRealEl = document.getElementById('form-pedido-estado-realizacion');
+    if (estRealEl) estRealEl.value = 'PENDIENTE';
     document.getElementById('form-pedido-hace').value = 'J';
     document.getElementById('form-pedido-cobra').value = 'X';
     document.getElementById('form-pedido-notas').value = '';
@@ -1189,6 +1296,8 @@ function editarPedidoModal(id) {
     document.getElementById('form-pedido-unidades').value = p.unidades;
     document.getElementById('form-pedido-precio-ud').value = p.precio_unidad;
     document.getElementById('form-pedido-precio-total').value = p.precio_total;
+    const estRealEl = document.getElementById('form-pedido-estado-realizacion');
+    if (estRealEl) estRealEl.value = p.estado_realizacion || 'REALIZADO';
     document.getElementById('form-pedido-hace').value = p.quien_hace || 'J';
     document.getElementById('form-pedido-cobra').value = p.quien_cobra || 'X';
     document.getElementById('form-pedido-notas').value = p.notas || '';
@@ -1212,6 +1321,7 @@ async function guardarPedido(e) {
     const cliente = (document.getElementById('form-pedido-cliente').value || '').trim() || 'Particular';
     const fecha = document.getElementById('form-pedido-fecha').value || new Date().toISOString().split('T')[0];
     const quienHace = document.getElementById('form-pedido-hace').value;
+    const estadoRealizacion = document.getElementById('form-pedido-estado-realizacion')?.value || 'PENDIENTE';
 
     const autoDescontar = document.getElementById('pedido-auto-descontar-stock')?.checked;
     const tieneMaterialesADescontar = autoDescontar && currentPedidoMaterialesConsumo && currentPedidoMaterialesConsumo.length > 0;
@@ -1238,6 +1348,7 @@ async function guardarPedido(e) {
         pct_ci: 0.20,
         quien_hace: quienHace,
         quien_cobra: document.getElementById('form-pedido-cobra').value,
+        estado_realizacion: estadoRealizacion,
         notas: document.getElementById('form-pedido-notas').value,
         detalles_json: tieneMaterialesADescontar ? JSON.stringify(detallesObj) : ''
     };
@@ -1324,7 +1435,7 @@ async function eliminarPedidoConfirmar(id) {
 
 // Search and filters
 document.getElementById('search-pedidos')?.addEventListener('input', (e) => {
-    loadPedidos(null, e.target.value);
+    loadPedidos(currentPedidosFiltro, e.target.value);
 });
 
 function filtrarPedidos(estado) {
@@ -1337,7 +1448,7 @@ function filtrarPedidos(estado) {
             b.classList.add('text-slate-400');
         }
     });
-    loadPedidos(estado === 'TODOS' ? null : estado);
+    loadPedidos(estado === 'TODOS' ? null : estado, currentPedidosQuery);
 }
 
 // --- STOCK Y MATERIALES ---

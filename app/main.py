@@ -17,6 +17,7 @@ from app.database import (
     get_pedido,
     create_pedido,
     update_pedido,
+    toggle_pedido_realizado,
     delete_pedido,
     get_gastos_material,
     add_gasto_material,
@@ -135,6 +136,13 @@ def api_create_pedido(datos: dict):
 @app.put("/api/pedidos/{pedido_id}")
 def api_update_pedido(pedido_id: str, datos: dict):
     p = update_pedido(pedido_id, datos)
+    if not p:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    return p
+
+@app.put("/api/pedidos/{pedido_id}/toggle-realizado")
+def api_toggle_pedido_realizado(pedido_id: str):
+    p = toggle_pedido_realizado(pedido_id)
     if not p:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
     return p

@@ -58,6 +58,11 @@
                     <span id="quick-pendiente" class="font-bold font-mono text-slate-300 text-sm">0.00 €</span>
                     <span id="quick-pendiente-badge" class="hidden w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
                 </div>
+                <div class="flex items-center gap-2" title="Pedidos pendientes de fabricar">
+                    <span class="text-slate-400">Por Fabricar:</span>
+                    <span id="quick-pendientes-realizar" class="font-bold font-mono text-amber-400 text-sm">0</span>
+                    <span id="quick-pendientes-realizar-badge" class="hidden w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                </div>
                 <div class="px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 flex items-center gap-2">
                     <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     <div id="quick-liquidacion-text" class="text-slate-300 font-medium">Calculando...</div>
@@ -530,13 +535,84 @@
 
         <!-- ================= TAB 2: PEDIDOS Y PROYECTOS ================= -->
         <section id="tab-pedidos" class="tab-content space-y-6">
+
+            <!-- 📌 BLOQUE DE INDICADORES / KPIS DE PEDIDOS -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <!-- 1. INDICADOR PRINCIPAL: PENDIENTES DE REALIZAR -->
+                <div onclick="filtrarPedidos('PENDIENTE_REALIZAR')" class="glass-card p-4 rounded-2xl border-2 border-amber-500/50 bg-gradient-to-br from-amber-950/30 via-slate-900 to-slate-900 hover:border-amber-400 transition-all cursor-pointer group shadow-xl shadow-amber-950/20 relative overflow-hidden">
+                    <div class="absolute -right-6 -bottom-6 w-20 h-20 bg-amber-500/10 rounded-full blur-xl pointer-events-none"></div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
+                            Pendientes de Realizar
+                        </span>
+                        <div class="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-110 transition-transform">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        </div>
+                    </div>
+                    <div class="mt-2.5 flex items-baseline gap-2">
+                        <span id="kpi-pedidos-pendientes-realizar" class="text-3xl font-black font-mono text-amber-300">0</span>
+                        <span class="text-xs text-amber-400/90 font-bold uppercase tracking-wide">pedidos</span>
+                    </div>
+                    <p id="kpi-piezas-pendientes-realizar" class="text-xs text-slate-400 mt-1 font-medium">0 piezas por fabricar</p>
+                </div>
+
+                <!-- 2. TOTAL PEDIDOS REGISTRADOS -->
+                <div onclick="filtrarPedidos('TODOS')" class="glass-card p-4 rounded-2xl border border-slate-800 hover:border-slate-700 transition-all cursor-pointer group">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Encargos</span>
+                        <div class="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 group-hover:scale-110 transition-transform">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                        </div>
+                    </div>
+                    <div class="mt-2.5 flex items-baseline gap-2">
+                        <span id="kpi-pedidos-total" class="text-3xl font-black font-mono text-white">0</span>
+                        <span class="text-xs text-slate-400 font-medium">registrados</span>
+                    </div>
+                    <p id="kpi-piezas-total" class="text-xs text-slate-400 mt-1 font-medium">0 piezas en histórico</p>
+                </div>
+
+                <!-- 3. PENDIENTE DE COBRO -->
+                <div onclick="filtrarPedidos('X')" class="glass-card p-4 rounded-2xl border border-red-500/30 hover:border-red-500/60 transition-all cursor-pointer group">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-red-400 uppercase tracking-wider">Pendiente Cobro</span>
+                        <div class="w-8 h-8 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 group-hover:scale-110 transition-transform">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        </div>
+                    </div>
+                    <div class="mt-2.5 flex items-baseline gap-2">
+                        <span id="kpi-pedidos-pendiente-cobro-importe" class="text-2xl md:text-3xl font-black font-mono text-red-400">0.00 €</span>
+                    </div>
+                    <p id="kpi-pedidos-pendiente-cobro-count" class="text-xs text-slate-400 mt-1 font-medium">0 pedidos sin cobrar</p>
+                </div>
+
+                <!-- 4. REALIZADOS / COMPLETADOS -->
+                <div onclick="filtrarPedidos('REALIZADO')" class="glass-card p-4 rounded-2xl border border-emerald-500/30 hover:border-emerald-500/60 transition-all cursor-pointer group">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider">Fabricados</span>
+                        <div class="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                        </div>
+                    </div>
+                    <div class="mt-2.5 flex items-baseline gap-2">
+                        <span id="kpi-pedidos-realizados" class="text-3xl font-black font-mono text-emerald-400">0</span>
+                        <span class="text-xs text-slate-400 font-medium">completados</span>
+                    </div>
+                    <p class="text-xs text-slate-400 mt-1 font-medium">Listos y finalizados</p>
+                </div>
+            </div>
+
             <!-- Controls & Filter Bar -->
             <div class="glass-card p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div class="flex flex-wrap items-center gap-2">
                     <button onclick="filtrarPedidos('TODOS')" data-filter="TODOS" class="filter-pedidos-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-700 text-white">Todos</button>
+                    <button onclick="filtrarPedidos('PENDIENTE_REALIZAR')" data-filter="PENDIENTE_REALIZAR" class="filter-pedidos-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-400 hover:bg-slate-800 flex items-center gap-1.5 border border-amber-500/20">
+                        <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                        Pendientes de Realizar
+                    </button>
                     <button onclick="filtrarPedidos('X')" data-filter="X" class="filter-pedidos-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:bg-slate-800 flex items-center gap-1.5">
                         <span class="w-2 h-2 rounded-full bg-red-500"></span>
-                        Pendientes (X)
+                        Pendientes Cobro (X)
                     </button>
                     <button onclick="filtrarPedidos('J')" data-filter="J" class="filter-pedidos-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:bg-slate-800 flex items-center gap-1.5">
                         <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
@@ -575,6 +651,7 @@
                                 <th class="py-3 px-4 text-center">Uds</th>
                                 <th class="py-3 px-4 text-right">Precio Ud</th>
                                 <th class="py-3 px-4 text-right">Total</th>
+                                <th class="py-3 px-4 text-center">Fabricación</th>
                                 <th class="py-3 px-4 text-center">¿Quién Hace?</th>
                                 <th class="py-3 px-4 text-center">¿Quién Cobra?</th>
                                 <th class="py-3 px-4 text-right">Acciones</th>
@@ -1033,7 +1110,17 @@
                         <input type="number" step="0.01" id="form-pedido-precio-total" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 font-bold text-emerald-400">
                     </div>
                 </div>
-                <div class="grid grid-cols-2 gap-3">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-amber-300 font-semibold mb-1 flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            Estado Fabricación
+                        </label>
+                        <select id="form-pedido-estado-realizacion" class="w-full bg-slate-900 border border-amber-600/50 rounded-lg px-3 py-2 text-amber-300 font-bold">
+                            <option value="PENDIENTE">⏳ Pendiente de Realizar</option>
+                            <option value="REALIZADO">✅ Realizado / Terminado</option>
+                        </select>
+                    </div>
                     <div>
                         <label class="block text-slate-400 mb-1">¿Quién lo hace / imprime?</label>
                         <select id="form-pedido-hace" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
