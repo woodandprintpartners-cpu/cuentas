@@ -658,12 +658,13 @@ class WP3DStudio {
             if (useMeshChk) useMeshChk.checked = true;
             document.getElementById('stl-controls')?.classList.remove('hidden');
 
-            // Auto-adjust relief height to match STL relief if reasonable
-            const zSpan = geo.boundingBox.max.z - geo.boundingBox.min.z;
-            if (zSpan > 0.3 && zSpan <= 8.0 && this.state.mode !== 'emboss') {
-                this.state.relief = Math.round(zSpan * 20) / 20;
-                this.syncUIInputs();
-            }
+            // Auto-detect if STL has a flat base plate so we cut right above it to isolate the relief/logo
+            const autoCut = this.autoDetectStlBaseCutPct(geo);
+            this.state.stlCutPct = autoCut;
+            const cutSlider = document.getElementById('stl-cut-pct');
+            const cutVal = document.getElementById('stl-cut-val');
+            if (cutSlider) cutSlider.value = String(autoCut);
+            if (cutVal) cutVal.innerText = `${autoCut}%`;
 
             this.updateContourFromLoadedSTL();
             this.rebuild();
@@ -672,6 +673,43 @@ class WP3DStudio {
             console.error('Error al cargar STL:', err);
             this.showToast('❌ Error al leer el archivo .STL');
         }
+    }
+
+    autoDetectStlBaseCutPct(geo) {
+        const bb = geo.boundingBox;
+        const zSpan = (bb.max.z - bb.min.z) || 1;
+        const pos = geo.attributes.position;
+        const triCount = pos.count / 3;
+        const bins = new Float64Array(50);
+
+        for (let i = 0; i < triCount; i++) {
+            const z0 = pos.getZ(i * 3), z1 = pos.getZ(i * 3 + 1), z2 = pos.getZ(i * 3 + 2);
+            if (Math.abs(z0 - z1) < 0.04 && Math.abs(z1 - z2) < 0.04) {
+                const zAvg = (z0 + z1 + z2) / 3;
+                const rel = (zAvg - bb.min.z) / zSpan;
+                if (rel > 0.08 && rel < 0.90) {
+                    const x0 = pos.getX(i * 3), y0 = pos.getY(i * 3);
+                    const x1 = pos.getX(i * 3 + 1), y1 = pos.getY(i * 3 + 1);
+                    const x2 = pos.getX(i * 3 + 2), y2 = pos.getY(i * 3 + 2);
+                    const area = 0.5 * Math.abs((x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0));
+                    const bIdx = Math.min(49, Math.max(0, Math.floor(rel * 50)));
+                    bins[bIdx] += area;
+                }
+            }
+        }
+
+        let bestBin = -1, bestArea = 0;
+        for (let b = 4; b <= 44; b++) {
+            if (bins[b] > bestArea) {
+                bestArea = bins[b];
+                bestBin = b;
+            }
+        }
+        const totalBoxArea = Math.max(1, (bb.max.x - bb.min.x) * (bb.max.y - bb.min.y));
+        if (bestBin > 0 && bestArea > totalBoxArea * 0.08) {
+            return Math.min(88, Math.round(((bestBin + 1.5) / 50) * 100));
+        }
+        return 25;
     }
 
     onStlControlChange() {
@@ -971,55 +1009,49 @@ class WP3DStudio {
 
     offsetPolygon(points, distance) {
         if (!points || points.length < 3 || Math.abs(distance) < 1e-4) return points;
-        const clean = [];
+        const MITER_LIMIT = 4.0;
+        const cleanPts = [];
         for (let i = 0; i < points.length; i++) {
-            const next = points[(i + 1) % points.length];
-            if (points[i].distanceTo(next) > 0.001) clean.push(points[i]);
+            if (i === 0 || points[i].distanceTo(points[i - 1]) > 0.001) cleanPts.push(points[i]);
         }
-        if (clean.length < 3) return points;
+        if (cleanPts.length > 2 && cleanPts[0].distanceTo(cleanPts[cleanPts.length - 1]) < 0.001) cleanPts.pop();
+        if (cleanPts.length < 3) return points;
 
-        let area = 0;
-        for (let i = 0; i < clean.length; i++) {
-            const j = (i + 1) % clean.length;
-            area += clean[i].x * clean[j].y - clean[j].x * clean[i].y;
+        // Normalize to Counter-Clockwise (CCW) so outward normal is always (v.y, -v.x)
+        const pts = [...cleanPts];
+        let sum = 0;
+        for (let i = 0; i < pts.length; i++) {
+            const p1 = pts[i];
+            const p2 = pts[(i + 1) % pts.length];
+            sum += (p2.x - p1.x) * (p2.y + p1.y);
         }
-        const sign = (area >= 0 ? 1 : -1) * -1;
-        const len = clean.length;
-        const result = [];
+        if (sum > 0) pts.reverse();
 
+        const newPoints = [];
+        const len = pts.length;
         for (let i = 0; i < len; i++) {
-            const pPrev = clean[(i - 1 + len) % len];
-            const pCurr = clean[i];
-            const pNext = clean[(i + 1) % len];
-
-            const v1 = new THREE.Vector2().subVectors(pCurr, pPrev).normalize();
-            const n1 = new THREE.Vector2(-v1.y, v1.x).multiplyScalar(sign);
-
-            const v2 = new THREE.Vector2().subVectors(pNext, pCurr).normalize();
-            const n2 = new THREE.Vector2(-v2.y, v2.x).multiplyScalar(sign);
-
-            const cross = v1.x * v2.y - v1.y * v2.x;
-            const isOuter = (cross * sign) < 0;
-
-            if (isOuter && distance > 0) {
-                const dot = n1.dot(n2);
-                if (dot < 0.2) {
-                    result.push(new THREE.Vector2().copy(pCurr).addScaledVector(n1, distance));
-                    result.push(new THREE.Vector2().copy(pCurr).addScaledVector(n2, distance));
-                    continue;
-                }
-            }
-
+            const p1 = pts[(i - 1 + len) % len];
+            const p2 = pts[i];
+            const p3 = pts[(i + 1) % len];
+            const v1 = new THREE.Vector2().subVectors(p2, p1).normalize();
+            const v2 = new THREE.Vector2().subVectors(p3, p2).normalize();
+            const n1 = new THREE.Vector2(v1.y, -v1.x);
+            const n2 = new THREE.Vector2(v2.y, -v2.x);
             const bisector = new THREE.Vector2().addVectors(n1, n2).normalize();
-            const dotProd = n1.dot(bisector);
-            let miterLen = distance;
-            if (Math.abs(dotProd) > 0.1) miterLen = distance / dotProd;
-            const limit = Math.abs(distance) * 2.0;
-            if (Math.abs(miterLen) > limit) miterLen = Math.sign(miterLen) * limit;
+            const dot = n1.dot(bisector);
+            const safeDot = Math.max(dot, 0.15);
+            const miter = 1.0 / safeDot;
 
-            result.push(new THREE.Vector2().copy(pCurr).addScaledVector(bisector, miterLen));
+            if (miter > MITER_LIMIT && distance > 0) {
+                newPoints.push(new THREE.Vector2(p2.x + n1.x * distance, p2.y + n1.y * distance));
+                newPoints.push(new THREE.Vector2(p2.x + n2.x * distance, p2.y + n2.y * distance));
+            } else {
+                const clampedMiter = Math.min(miter, MITER_LIMIT);
+                const offsetVec = bisector.multiplyScalar(distance * clampedMiter);
+                newPoints.push(new THREE.Vector2().addVectors(p2, offsetVec));
+            }
         }
-        return result;
+        return newPoints;
     }
 
     createRoundedRect(w, h, r, side = 'both') {
@@ -1186,12 +1218,17 @@ class WP3DStudio {
             pL = Math.max(pL, hingeL * 3 - 8);
         }
 
-        const maxAllowedLogo = isMagnet ? Math.min(pW, pL) - 12 : Math.min(pW, pL) - 7;
-        const effectiveSize = Math.max(10, maxAllowedLogo * 0.85);
+        const magR = (s.magnetWidth / 2) + 0.08;
+        // Center of magnet holes at 5.0mm from plate edges (exact SelloMaker layout)
+        const holeOffX = Math.max(4.0, (pW / 2) - 5.0);
+        const holeOffY = Math.max(4.0, (pL / 2) - 5.0);
+
+        const maxAllowedLogo = isMagnet ? Math.min(pW, pL) - 16 : Math.min(pW, pL) - 8;
+        const effectiveSize = Math.max(10, maxAllowedLogo * 0.88);
 
         const rightIsMale = !s.swapPlates;
         const maleX = isMagnet
-            ? (rightIsMale ? (pW / 2 + 5) : -(pW / 2 + 5))
+            ? (rightIsMale ? (pW / 2 + 4) : -(pW / 2 + 4))
             : (rightIsMale ? (hingeW / 2 + pW / 2 - overlap) : -(hingeW / 2 + pW / 2 - overlap));
         const femaleX = -maleX;
         const baseLayerDepth = Math.max(1.0, s.thickness - s.depth);
@@ -1224,45 +1261,45 @@ class WP3DStudio {
             this.mainGroup.add(fMesh);
             this.exportGroups.hembra.add(fMesh.clone());
         } else {
-            const magR = (s.magnetWidth / 2) + 0.05;
-            const holeOffX = (pW / 2) - 5.0 - magR;
-            const holeOffY = (pL / 2) - 5.0 - magR;
-            const solidBottom = Math.max(0.8, s.thickness - s.magnetDepth - 0.1);
+            const magnetHoleDepth = s.magnetDepth + 0.1;
+            const solidBottom = Math.max(0.8, s.thickness - magnetHoleDepth);
 
+            // 1. Male Magnet Plate (Solid bottom + Top with 2 diagonal blind magnet holes)
             const mNotch = maleX > 0 ? 'right' : 'left';
-            const mBaseShape = this.createMagnetPlateShape(pW, pL, 4, mNotch);
-            const mBotGeo = new THREE.ExtrudeGeometry(mBaseShape, { depth: solidBottom, bevelEnabled: false });
+            const mSolidShape = this.createMagnetPlateShape(pW, pL, 4, null);
+            const mBotGeo = new THREE.ExtrudeGeometry(mSolidShape, { depth: solidBottom, bevelEnabled: false });
             mBotGeo.translate(maleX, 0, 0);
             const mBotMesh = new THREE.Mesh(mBotGeo, this.materials.darkPlate);
             this.mainGroup.add(mBotMesh);
             this.exportGroups.macho.add(mBotMesh.clone());
 
             const mTopShape = this.createMagnetPlateShape(pW, pL, 4, mNotch);
-            const mh1 = new THREE.Path(); mh1.absarc(-holeOffX, holeOffY, magR, 0, Math.PI * 2, false);
-            const mh2 = new THREE.Path(); mh2.absarc(holeOffX, -holeOffY, magR, 0, Math.PI * 2, false);
+            const mh1 = new THREE.Path(); mh1.absarc(-holeOffX, holeOffY, magR, 0, Math.PI * 2, true);
+            const mh2 = new THREE.Path(); mh2.absarc(holeOffX, -holeOffY, magR, 0, Math.PI * 2, true);
             mTopShape.holes.push(mh1, mh2);
-            const mTopGeo = new THREE.ExtrudeGeometry(mTopShape, { depth: s.magnetDepth + 0.2, bevelEnabled: false });
-            mTopGeo.translate(maleX, 0, solidBottom - 0.1);
+            const mTopGeo = new THREE.ExtrudeGeometry(mTopShape, { depth: magnetHoleDepth, bevelEnabled: false });
+            mTopGeo.translate(maleX, 0, solidBottom);
             const mTopMesh = new THREE.Mesh(mTopGeo, this.materials.darkPlate);
             this.mainGroup.add(mTopMesh);
             this.exportGroups.macho.add(mTopMesh.clone());
 
+            // 2. Female Magnet Plate (Solid bottom + Middle with magnet holes)
             const fNotch = femaleX > 0 ? 'right' : 'left';
-            const fBaseShape = this.createMagnetPlateShape(pW, pL, 4, fNotch);
-            const fBotGeo = new THREE.ExtrudeGeometry(fBaseShape, { depth: solidBottom, bevelEnabled: false });
+            const fSolidShape = this.createMagnetPlateShape(pW, pL, 4, null);
+            const fBotGeo = new THREE.ExtrudeGeometry(fSolidShape, { depth: solidBottom, bevelEnabled: false });
             fBotGeo.translate(femaleX, 0, 0);
             const fBotMesh = new THREE.Mesh(fBotGeo, this.materials.darkPlate);
             this.mainGroup.add(fBotMesh);
             this.exportGroups.hembra.add(fBotMesh.clone());
 
-            const midHeight = (s.thickness - s.depth) - solidBottom;
-            if (midHeight > 0.05) {
+            const midHeight = baseLayerDepth - solidBottom;
+            if (midHeight > 0.04) {
                 const fMidShape = this.createMagnetPlateShape(pW, pL, 4, fNotch);
-                const fh1 = new THREE.Path(); fh1.absarc(holeOffX, holeOffY, magR, 0, Math.PI * 2, false);
-                const fh2 = new THREE.Path(); fh2.absarc(-holeOffX, -holeOffY, magR, 0, Math.PI * 2, false);
+                const fh1 = new THREE.Path(); fh1.absarc(holeOffX, holeOffY, magR, 0, Math.PI * 2, true);
+                const fh2 = new THREE.Path(); fh2.absarc(-holeOffX, -holeOffY, magR, 0, Math.PI * 2, true);
                 fMidShape.holes.push(fh1, fh2);
-                const fMidGeo = new THREE.ExtrudeGeometry(fMidShape, { depth: midHeight + 0.1, bevelEnabled: false });
-                fMidGeo.translate(femaleX, 0, solidBottom - 0.1);
+                const fMidGeo = new THREE.ExtrudeGeometry(fMidShape, { depth: midHeight, bevelEnabled: false });
+                fMidGeo.translate(femaleX, 0, solidBottom);
                 const fMidMesh = new THREE.Mesh(fMidGeo, this.materials.darkPlate);
                 this.mainGroup.add(fMidMesh);
                 this.exportGroups.hembra.add(fMidMesh.clone());
@@ -1287,41 +1324,91 @@ class WP3DStudio {
             });
         }
 
-        // Female Cavity + Counter-Islands
+        // Female Cavity + Counter-Islands (Layer 3: from baseLayerDepth to thickness)
         const femaleLogo = this.prepareLogoShapes(effectiveSize, true);
         const fFrameShape = isMagnet
             ? this.createMagnetPlateShape(pW, pL, 4, femaleX > 0 ? 'right' : 'left')
             : this.createRoundedRect(pW, pL, 4, femaleX > 0 ? 'right' : 'left');
 
         if (isMagnet) {
-            const magR = (s.magnetWidth / 2) + 0.05;
-            const holeOffX = (pW / 2) - 5.0 - magR;
-            const holeOffY = (pL / 2) - 5.0 - magR;
-            const fh1 = new THREE.Path(); fh1.absarc(holeOffX, holeOffY, magR, 0, Math.PI * 2, false);
-            const fh2 = new THREE.Path(); fh2.absarc(-holeOffX, -holeOffY, magR, 0, Math.PI * 2, false);
+            const fh1 = new THREE.Path(); fh1.absarc(holeOffX, holeOffY, magR, 0, Math.PI * 2, true);
+            const fh2 = new THREE.Path(); fh2.absarc(-holeOffX, -holeOffY, magR, 0, Math.PI * 2, true);
             fFrameShape.holes.push(fh1, fh2);
         }
 
-        femaleLogo.shapes.forEach(sh => {
-            const outerPts = sh.getPoints();
-            const expandedPts = this.offsetPolygon(outerPts, s.tolerance);
-            fFrameShape.holes.push(new THREE.Path(expandedPts));
+        const magnetCenters = isMagnet
+            ? [new THREE.Vector2(holeOffX, holeOffY), new THREE.Vector2(-holeOffX, -holeOffY)]
+            : [];
+        const minClearanceFromMagnet = magR + 0.45;
 
-            if (sh.holes && sh.holes.length > 0) {
-                sh.holes.forEach(h => {
-                    const hPts = h.getPoints();
-                    const contractedPts = this.offsetPolygon(hPts, -s.tolerance);
-                    if (contractedPts && contractedPts.length >= 3) {
-                        const islandShape = new THREE.Shape(contractedPts);
-                        const islGeo = new THREE.ExtrudeGeometry(islandShape, { depth: s.depth + overlap, bevelEnabled: false });
-                        islGeo.translate(femaleX, 0, baseLayerDepth - overlap);
-                        const islMesh = new THREE.Mesh(islGeo, this.materials.darkPlate);
-                        this.mainGroup.add(islMesh);
-                        this.exportGroups.hembra.add(islMesh.clone());
+        const cavityFloorShapes = [];
+
+        femaleLogo.shapes.forEach(sh => {
+            const outerPts = sh.getPoints(28);
+            let expandedPts = this.offsetPolygon(outerPts, s.tolerance);
+
+            // Prevent logo cavity hole from ever colliding with diagonal magnet holes
+            if (isMagnet && expandedPts && expandedPts.length >= 3) {
+                expandedPts = expandedPts.map(pt => {
+                    const p = pt.clone();
+                    for (const mc of magnetCenters) {
+                        const dist = p.distanceTo(mc);
+                        if (dist < minClearanceFromMagnet) {
+                            const dirToCenter = p.clone().sub(mc);
+                            if (dirToCenter.lengthSq() < 1e-4) dirToCenter.set(-Math.sign(mc.x), -Math.sign(mc.y));
+                            dirToCenter.normalize();
+                            p.copy(mc).addScaledVector(dirToCenter, minClearanceFromMagnet);
+                        }
                     }
+                    // Also keep inside plate boundary
+                    const maxX = (pW / 2) - 1.2;
+                    const maxY = (pL / 2) - 1.2;
+                    p.x = Math.max(-maxX, Math.min(maxX, p.x));
+                    p.y = Math.max(-maxY, Math.min(maxY, p.y));
+                    return p;
                 });
             }
+
+            if (expandedPts && expandedPts.length >= 3) {
+                // Reverse CCW -> CW so hole orientation matches Three.js requirement and magnet holes
+                const cwHolePts = [...expandedPts].reverse();
+                fFrameShape.holes.push(new THREE.Path(cwHolePts));
+
+                const floorShape = new THREE.Shape([...expandedPts]);
+
+                if (sh.holes && sh.holes.length > 0) {
+                    sh.holes.forEach(h => {
+                        const hPts = h.getPoints(28);
+                        const contractedPts = this.offsetPolygon(hPts, -s.tolerance);
+                        if (contractedPts && contractedPts.length >= 3) {
+                            const islandShape = new THREE.Shape([...contractedPts]);
+                            const islGeo = new THREE.ExtrudeGeometry(islandShape, { depth: s.depth + overlap, bevelEnabled: false });
+                            islGeo.translate(femaleX, 0, baseLayerDepth - overlap);
+                            const islMesh = new THREE.Mesh(islGeo, this.materials.darkPlate);
+                            this.mainGroup.add(islMesh);
+                            this.exportGroups.hembra.add(islMesh.clone());
+
+                            floorShape.holes.push(new THREE.Path([...contractedPts].reverse()));
+                        }
+                    });
+                }
+                cavityFloorShapes.push(floorShape);
+            }
         });
+
+        // Visual highlight floor inside the female negative cavity (like SelloMaker's whiteHoleMesh)
+        // Makes the negative engraving clearly visible in 3D view; excluded from STL export so cavity remains hollow
+        if (cavityFloorShapes.length > 0) {
+            try {
+                const floorGeo = new THREE.ExtrudeGeometry(cavityFloorShapes, { depth: 0.04, bevelEnabled: false });
+                floorGeo.translate(femaleX, 0, baseLayerDepth + 0.01);
+                const floorMesh = new THREE.Mesh(floorGeo, this.materials.accentGreen);
+                floorMesh.name = 'cavityFloorHelper';
+                this.mainGroup.add(floorMesh);
+            } catch (eFloor) {
+                console.warn('Cavity floor preview skipped:', eFloor);
+            }
+        }
 
         const fTopGeo = new THREE.ExtrudeGeometry(fFrameShape, { depth: s.depth + overlap, bevelEnabled: false });
         fTopGeo.translate(femaleX, 0, baseLayerDepth - overlap);
@@ -1765,21 +1852,32 @@ class WP3DStudio {
 
     async exportMain(format = 'stl') {
         const fname = this.getCleanFilename(this.state.mode);
-        if (format === '3mf') {
-            this.showToast('⏳ Generando archivo .3MF Multicolor...');
-            const blob = await exportGroupTo3MF(this.mainGroup, fname);
-            if (blob) {
-                this.triggerBlobDownload(blob, `${fname}.3mf`);
-                this.showToast(`✅ Descargado: ${fname}.3mf (Listo para Bambu Studio / OrcaSlicer)`);
-            } else {
-                this.showToast('❌ Error al generar .3MF');
+        const hiddenHelpers = [];
+        this.mainGroup.traverse(ch => {
+            if (ch.name === 'cavityFloorHelper' && ch.visible) {
+                ch.visible = false;
+                hiddenHelpers.push(ch);
             }
-        } else {
-            const exporter = new STLExporter();
-            const res = exporter.parse(this.mainGroup, { binary: true });
-            const blob = new Blob([res], { type: 'application/octet-stream' });
-            this.triggerBlobDownload(blob, `${fname}.stl`);
-            this.showToast(`✅ Descargado: ${fname}.stl`);
+        });
+        try {
+            if (format === '3mf') {
+                this.showToast('⏳ Generando archivo .3MF Multicolor...');
+                const blob = await exportGroupTo3MF(this.mainGroup, fname);
+                if (blob) {
+                    this.triggerBlobDownload(blob, `${fname}.3mf`);
+                    this.showToast(`✅ Descargado: ${fname}.3mf (Listo para Bambu Studio / OrcaSlicer)`);
+                } else {
+                    this.showToast('❌ Error al generar .3MF');
+                }
+            } else {
+                const exporter = new STLExporter();
+                const res = exporter.parse(this.mainGroup, { binary: true });
+                const blob = new Blob([res], { type: 'application/octet-stream' });
+                this.triggerBlobDownload(blob, `${fname}.stl`);
+                this.showToast(`✅ Descargado: ${fname}.stl`);
+            }
+        } finally {
+            hiddenHelpers.forEach(ch => { ch.visible = true; });
         }
     }
 
