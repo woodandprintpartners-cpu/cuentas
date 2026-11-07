@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>W&P SelloMaker 3D — Sellos, Lacre & Llaveros/Medallas | Wood & Print</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/opentype.js@1.3.4/dist/opentype.min.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #090d16; color: #f1f5f9; overflow: hidden; margin: 0; }
+        .mono { font-family: 'Space Mono', monospace; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.4); }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            background: #1e293b;
+            border-radius: 999px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #10b981;
+            cursor: pointer;
+            border: 2px solid #0f172a;
+            box-shadow: 0 0 8px rgba(16,185,129,0.5);
+        }
+        .mode-card.active {
+            border-color: #10b981;
+            background: rgba(16, 185, 129, 0.12);
+            color: #fff;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.18);
+        }
+        .sub-btn.active {
+            background: #10b981;
+            color: #052e16;
+            border-color: #10b981;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col select-none">
+
+    <!-- TOP BAR -->
+    <header class="h-12 bg-slate-900/95 border-b border-slate-800 px-4 flex items-center justify-between z-30 shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-emerald-500 to-teal-600 flex items-center justify-center font-black text-slate-950 text-sm shadow">
+                3D
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="font-bold text-sm tracking-tight text-white">W&P SelloMaker & 3D Studio</span>
+                <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 mono font-bold">PRO ILIMITADO · GRATIS</span>
+            </div>
+        </div>
+
+        <!-- Quick Camera & View Controls -->
+        <div class="flex items-center gap-1.5">
+            <button onclick="window.studio.setCameraView('iso')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition">Vista 3D</button>
+            <button onclick="window.studio.setCameraView('top')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition">Planta (Arriba)</button>
+            <button onclick="window.studio.setCameraView('front')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 transition">Frente</button>
+            <button id="btn-wireframe" onclick="window.studio.toggleWireframe()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 border border-slate-700 transition">Bordes Técnicos: ON</button>
+            <button id="btn-theme" onclick="window.studio.toggleBg()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 border border-slate-700 transition" title="Cambiar color de fondo del visor">🌗 Fondo</button>
+        </div>
+
+        <!-- Right Quick Export -->
+        <div class="flex items-center gap-2">
+            <div id="live-dimensions-badge" class="hidden md:flex items-center gap-2 px-3 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] mono text-slate-300">
+                <span>📐 <strong id="dim-readout" class="text-emerald-400">64.3 × 35.5 × 4.0 mm</strong></span>
+            </div>
+            <button onclick="window.studio.exportMain('stl')" class="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-500/20 transition">
+                <span>⬇ Descargar STL</span>
+            </button>
+            <button onclick="window.studio.exportMain('3mf')" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg shadow-indigo-600/20 transition">
+                <span>🎨 3MF Multicolor</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN WORKSPACE -->
+    <div class="flex-1 flex overflow-hidden relative">
+
+        <!-- LEFT CONTROL PANEL -->
+        <aside class="w-96 bg-slate-900/95 border-r border-slate-800 flex flex-col h-full z-20 shrink-0">
+            <div class="flex-1 overflow-y-auto p-4 space-y-5">
+
+                <!-- 1. MODE SELECTOR (LAS 3 OPCIONES) -->
+                <div>
+                    <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">1. ¿Qué pieza 3D quieres fabricar?</label>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button type="button" id="mode-emboss" onclick="window.studio.setMode('emboss')" class="mode-card active p-2.5 rounded-xl border border-slate-700 bg-slate-800/60 flex flex-col items-center text-center gap-1 transition cursor-pointer">
+                            <span class="text-xl">⚙️</span>
+                            <span class="text-xs font-bold leading-tight">Sello Seco</span>
+                            <span class="text-[10px] text-slate-400 leading-tight">Macho+Hembra</span>
+                        </button>
+                        <button type="button" id="mode-stamp" onclick="window.studio.setMode('stamp')" class="mode-card p-2.5 rounded-xl border border-slate-700 bg-slate-800/60 flex flex-col items-center text-center gap-1 transition cursor-pointer">
+                            <span class="text-xl">🕯️</span>
+                            <span class="text-xs font-bold leading-tight">Lacre / Galleta</span>
+                            <span class="text-[10px] text-slate-400 leading-tight">Sello + Mango</span>
+                        </button>
+                        <button type="button" id="mode-keychain" onclick="window.studio.setMode('keychain')" class="mode-card p-2.5 rounded-xl border border-slate-700 bg-slate-800/60 flex flex-col items-center text-center gap-1 transition cursor-pointer">
+                            <span class="text-xl">🏅</span>
+                            <span class="text-xs font-bold leading-tight">Medalla / Llavero</span>
+                            <span class="text-[10px] text-slate-400 leading-tight">Relieve 3D + Aro</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 2. DESIGN INPUT: SVG / IMAGE / TEXT / LIBRARY -->
+                <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <label class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">2. Diseño (SVG, Imagen o Texto)</label>
+                        <div class="flex gap-1">
+                            <button onclick="window.studio.rotateLogo()" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 border border-slate-700" title="Girar 90°">⟳ 90°</button>
+                            <button onclick="window.studio.toggleFlipX()" id="btn-flip-x" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 border border-slate-700" title="Espejar horizontalmente">↔ Espejo</button>
+                        </div>
+                    </div>
+
+                    <!-- Source Tabs -->
+                    <div class="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800 text-xs">
+                        <button id="src-tab-upload" onclick="window.studio.setSourceTab('upload')" class="py-1.5 rounded-md font-semibold bg-slate-800 text-white transition">📁 Archivo</button>
+                        <button id="src-tab-text" onclick="window.studio.setSourceTab('text')" class="py-1.5 rounded-md font-semibold text-slate-400 hover:text-white transition">🔤 Texto</button>
+                        <button id="src-tab-icons" onclick="window.studio.setSourceTab('icons')" class="py-1.5 rounded-md font-semibold text-slate-400 hover:text-white transition">⭐ Plantillas</button>
+                    </div>
+
+                    <!-- TAB A: UPLOAD SVG OR PNG/JPG -->
+                    <div id="src-panel-upload" class="space-y-2">
+                        <div id="drop-zone" onclick="document.getElementById('file-input').click()" class="border-2 border-dashed border-slate-700 hover:border-emerald-500 rounded-xl p-4 text-center cursor-pointer transition bg-slate-900/50 hover:bg-slate-900">
+                            <input type="file" id="file-input" accept=".svg,.png,.jpg,.jpeg,.webp" class="hidden">
+                            <div class="text-2xl mb-1">📤</div>
+                            <p class="text-xs font-bold text-slate-200">Subir archivo <span class="text-emerald-400">.SVG</span> o imagen <span class="text-blue-400">.PNG / .JPG</span></p>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Si subes una foto/PNG, la vectorizamos a 3D al instante</p>
+                        </div>
+
+                        <!-- Raster image auto-vectorize controls (shown when PNG/JPG uploaded) -->
+                        <div id="raster-controls" class="hidden bg-slate-900 border border-slate-700 rounded-lg p-2.5 space-y-2">
+                            <div class="flex items-center justify-between text-[11px]">
+                                <span class="font-semibold text-blue-400">⚙️ Ajuste de Vectorizado de Imagen</span>
+                                <label class="flex items-center gap-1 cursor-pointer">
+                                    <input type="checkbox" id="raster-invert" onchange="window.studio.retraceRaster()" class="rounded">
+                                    <span>Invertir B/N</span>
+                                </label>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[11px] text-slate-400 w-16">Umbral:</span>
+                                <input type="range" id="raster-thresh" min="20" max="235" value="145" oninput="window.studio.retraceRaster()" class="flex-1">
+                                <span id="raster-thresh-val" class="text-[11px] mono w-8 text-right">145</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB B: TEXT GENERATOR -->
+                    <div id="src-panel-text" class="hidden space-y-2.5">
+                        <textarea id="text-input" rows="2" maxlength="50" placeholder="Escribe el texto o iniciales..." class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white focus:border-emerald-500 outline-none resize-none">WOOD & PRINT</textarea>
+                        <div class="flex gap-2">
+                            <select id="font-select" onchange="window.studio.applyTextTo3D()" class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none">
+                                <option value="Lobster">★ Lobster (Script Gruesa)</option>
+                                <option value="Righteous">★ Righteous (Geométrica)</option>
+                                <option value="Pacifico">★ Pacifico (Manuscrita)</option>
+                                <option value="Permanent Marker">★ Permanent Marker</option>
+                                <option value="Abril Fatface">★ Abril Fatface (Elegante)</option>
+                                <option value="Boogaloo">★ Boogaloo (Redondeada)</option>
+                                <option value="Roboto">★ Roboto Bold (Limpia)</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[11px] text-slate-400 w-24">Grosor trazo:</span>
+                            <input type="range" id="text-thicken" min="0" max="3" step="0.2" value="0.6" oninput="document.getElementById('text-thicken-val').innerText=this.value; window.studio.applyTextTo3D()" class="flex-1">
+                            <span id="text-thicken-val" class="text-[11px] mono w-8 text-right">0.6</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <label class="flex items-center gap-1.5 text-[11px] text-slate-300 cursor-pointer">
+                                <input type="checkbox" id="text-ring-border" onchange="window.studio.applyTextTo3D()" checked>
+                                <span>Añadir aro/marco circular alrededor del texto</span>
+                            </label>
+                        </div>
+                        <button onclick="window.studio.applyTextTo3D()" class="w-full py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition">
+                            Aplicar Texto al Modelo 3D
+                        </button>
+                    </div>
+
+                    <!-- TAB C: PRESET TEMPLATES (INCLUDING VIRGIN MEDAL & W&P) -->
+                    <div id="src-panel-icons" class="hidden">
+                        <div class="grid grid-cols-3 gap-2 max-h-44 overflow-y-auto p-1" id="preset-grid">
+                            <!-- Injected by JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. MODE-SPECIFIC CONFIGURATION -->
+
+                <!-- === OPTION A: EMBOSSING STAMP (MACHO + HEMBRA) === -->
+                <div id="config-emboss" class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <label class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">3. Sistema de Sello Seco</label>
+                        <button onclick="window.studio.swapPlatesToggle()" class="text-[11px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700">⇄ Invertir Lados</button>
+                    </div>
+
+                    <!-- Hinge vs Magnet -->
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="emboss-hinge-btn" onclick="window.studio.setEmbossType('hinge')" class="sub-btn active py-2 px-3 rounded-lg border border-slate-700 bg-slate-900 text-xs flex items-center justify-center gap-1.5 transition">
+                            <span>⚙️ Con Bisagra</span>
+                        </button>
+                        <button id="emboss-magnet-btn" onclick="window.studio.setEmbossType('magnet')" class="sub-btn py-2 px-3 rounded-lg border border-slate-700 bg-slate-900 text-xs flex items-center justify-center gap-1.5 transition">
+                            <span>🧲 Con Imanes</span>
+                        </button>
+                    </div>
+
+                    <!-- Material Presets -->
+                    <div>
+                        <span class="block text-[11px] text-slate-400 mb-1.5">Material a marcar (ajusta relieve y holgura):</span>
+                        <div class="grid grid-cols-4 gap-1.5">
+                            <button onclick="window.studio.setMaterialPreset('latas', this)" class="mat-preset-btn sub-btn py-1.5 rounded border border-slate-700 bg-slate-900 text-[11px]">🥫 Latas<br><span class="text-[9px] opacity-75">0.40mm</span></button>
+                            <button onclick="window.studio.setMaterialPreset('papel', this)" class="mat-preset-btn sub-btn active py-1.5 rounded border border-slate-700 bg-slate-900 text-[11px]">📄 Papel<br><span class="text-[9px] opacity-75">0.55mm</span></button>
+                            <button onclick="window.studio.setMaterialPreset('cartulina', this)" class="mat-preset-btn sub-btn py-1.5 rounded border border-slate-700 bg-slate-900 text-[11px]">📦 Cartón<br><span class="text-[9px] opacity-75">0.70mm</span></button>
+                            <button onclick="window.studio.setMaterialPreset('bolsas', this)" class="mat-preset-btn sub-btn py-1.5 rounded border border-slate-700 bg-slate-900 text-[11px]">🛍️ Bolsas<br><span class="text-[9px] opacity-75">1.10mm</span></button>
+                        </div>
+                    </div>
+
+                    <!-- Hinge Count Row -->
+                    <div id="row-hinge-count" class="flex items-center justify-between gap-2 pt-1">
+                        <span class="text-xs text-slate-300">Nº de Bisagras (Largo):</span>
+                        <div class="flex gap-1">
+                            <button onclick="window.studio.setHingeCount(1)" id="hc-1" class="sub-btn active px-3 py-1 rounded border border-slate-700 bg-slate-900 text-xs mono">1 (35.5mm)</button>
+                            <button onclick="window.studio.setHingeCount(2)" id="hc-2" class="sub-btn px-3 py-1 rounded border border-slate-700 bg-slate-900 text-xs mono">2 (71mm)</button>
+                            <button onclick="window.studio.setHingeCount(3)" id="hc-3" class="sub-btn px-3 py-1 rounded border border-slate-700 bg-slate-900 text-xs mono">3 (106mm)</button>
+                        </div>
+                    </div>
+
+                    <!-- Magnet Config Row -->
+                    <div id="row-magnet-config" class="hidden space-y-2 pt-1 border-t border-slate-800">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs text-slate-300">Medida del Imán:</span>
+                            <select id="magnet-size-select" onchange="window.studio.updateMagnetSize(this.value)" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs mono text-emerald-400">
+                                <option value="6x2" selected>6 × 2 mm (Estándar)</option>
+                                <option value="6x3">6 × 3 mm</option>
+                                <option value="5x2">5 × 2 mm</option>
+                                <option value="8x2">8 × 2 mm</option>
+                                <option value="8x3">8 × 3 mm</option>
+                                <option value="10x2">10 × 2 mm</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- === OPTION B: WAX / COOKIE / CLAY STAMP === -->
+                <div id="config-stamp" class="hidden bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-3">
+                    <label class="block text-[11px] font-bold uppercase tracking-wider text-amber-400">3. Configuración Sello Lacre / Galleta / Arcilla</label>
+                    <div class="grid grid-cols-3 gap-1.5">
+                        <button onclick="window.studio.setStampPreset('lacre')" id="sp-lacre" class="sub-btn active py-1.5 rounded border border-slate-700 bg-slate-900 text-[11px]">🕯️ Lacre<br><span class="text-[9px] opacity-75">Ø 28mm · H 1.5mm</span></button>
+                        <button onclick="window.studio.setStampPreset('galleta')" id="sp-galleta" class="sub-btn py-1.5 rounded border border-slate-700 bg-slate-900 text-[11px]">🍪 Galletas<br><span class="text-[9px] opacity-75">Ø 65mm · Cortador</span></button>
+                        <button onclick="window.studio.setStampPreset('arcilla')" id="sp-arcilla" class="sub-btn py-1.5 rounded border border-slate-700 bg-slate-900 text-[11px]">🏺 Arcilla/Jabón<br><span class="text-[9px] opacity-75">Ø 45mm · H 2.2mm</span></button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 pt-1">
+                        <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                            <input type="checkbox" id="stamp-invert-relief" onchange="window.studio.rebuild()" checked>
+                            <span>Hueco grabado (Lacre)</span>
+                        </label>
+                        <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                            <input type="checkbox" id="stamp-outer-rim" onchange="window.studio.rebuild()" checked>
+                            <span>Aro / Borde exterior</span>
+                        </label>
+                        <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer col-span-2">
+                            <input type="checkbox" id="stamp-handle" onchange="window.studio.rebuild()" checked>
+                            <span>Incluir Mango Ergonómico 3D integrado</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- === OPTION C: KEYCHAIN / MEDAL 3D === -->
+                <div id="config-keychain" class="hidden bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-3">
+                    <label class="block text-[11px] font-bold uppercase tracking-wider text-indigo-400">3. Configuración Medalla / Llavero 3D</label>
+                    <div>
+                        <span class="block text-[11px] text-slate-400 mb-1.5">Forma de la Base:</span>
+                        <div class="grid grid-cols-4 gap-1.5">
+                            <button onclick="window.studio.setBaseShape('circle')" id="bs-circle" class="sub-btn active py-1.5 rounded border border-slate-700 bg-slate-900 text-[11px]">⚪ Círculo</button>
+                            <button onclick="window.studio.setBaseShape('rect')" id="bs-rect" class="sub-btn py-1.5 rounded border border-slate-700 bg-slate-900 text-[11px]">⬜ Placa</button>
+                            <button onclick="window.studio.setBaseShape('shield')" id="bs-shield" class="sub-btn py-1.5 rounded border border-slate-700 bg-slate-900 text-[11px]">🛡️ Escudo</button>
+                            <button onclick="window.studio.setBaseShape('none')" id="bs-none" class="sub-btn py-1.5 rounded border border-slate-700 bg-slate-900 text-[11px]">✨ Solo Logo</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 pt-1">
+                        <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                            <input type="checkbox" id="kc-loop" onchange="window.studio.rebuild()" checked>
+                            <span>Argolla superior llavero</span>
+                        </label>
+                        <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+                            <input type="checkbox" id="kc-rim" onchange="window.studio.rebuild()" checked>
+                            <span>Borde / Marco en relieve</span>
+                        </label>
+                    </div>
+                    <div class="flex items-center gap-2 pt-1">
+                        <span class="text-xs text-slate-400 w-28">Ø Agujero argolla:</span>
+                        <input type="range" id="kc-hole-dia" min="2.5" max="8" step="0.5" value="4.5" oninput="document.getElementById('kc-hole-val').innerText=this.value+'mm'; window.studio.rebuildDebounced()" class="flex-1">
+                        <span id="kc-hole-val" class="text-xs mono w-12 text-right">4.5mm</span>
+                    </div>
+                </div>
+
+                <!-- 4. DIMENSIONS & TECHNICAL SLIDERS -->
+                <div class="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <label class="text-[11px] font-bold uppercase tracking-wider text-slate-300">4. Medidas y Alturas (mm)</label>
+                        <button onclick="window.studio.resetDefaults()" class="text-[10px] text-slate-400 hover:text-white underline">Restaurar</button>
+                    </div>
+
+                    <!-- Width / Diameter -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs">
+                            <span id="lbl-width" class="text-slate-300">Ancho / Diámetro Placa:</span>
+                            <span id="val-width" class="mono text-emerald-400 font-bold">64.0 mm</span>
+                        </div>
+                        <input type="range" id="slider-width" min="20" max="140" step="0.5" value="64" oninput="window.studio.onSlider('width', this.value)" class="w-full">
+                    </div>
+
+                    <!-- Height (when rectangular / magnet) -->
+                    <div id="row-slider-height" class="space-y-1">
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-300">Alto Placa:</span>
+                            <span id="val-height" class="mono text-emerald-400 font-bold">45.0 mm</span>
+                        </div>
+                        <input type="range" id="slider-height" min="20" max="140" step="0.5" value="45" oninput="window.studio.onSlider('height', this.value)" class="w-full">
+                    </div>
+
+                    <!-- Scale Logo -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-300">Escala del Diseño Interior:</span>
+                            <span id="val-scale" class="mono text-emerald-400 font-bold">100%</span>
+                        </div>
+                        <input type="range" id="slider-scale" min="0.3" max="1.45" step="0.02" value="1.0" oninput="window.studio.onSlider('scale', this.value)" class="w-full">
+                    </div>
+
+                    <!-- Offset X Logo -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-300">Desplazamiento Diseño (X):</span>
+                            <span id="val-offset" class="mono text-slate-300">0.0 mm</span>
+                        </div>
+                        <input type="range" id="slider-offset" min="-20" max="20" step="0.5" value="0" oninput="window.studio.onSlider('offset', this.value)" class="w-full">
+                    </div>
+
+                    <!-- Z Thicknesses & Tolerance -->
+                    <div class="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/80">
+                        <div>
+                            <label class="block text-[10px] text-slate-400 mb-1">Grosor Base (mm)</label>
+                            <input type="number" id="num-thickness" value="4.0" min="1.2" max="12" step="0.2" onchange="window.studio.onNumberParams()" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs mono text-white">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] text-slate-400 mb-1">Altura Relieve</label>
+                            <input type="number" id="num-relief" value="0.55" min="0.2" max="5.0" step="0.05" onchange="window.studio.onNumberParams()" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs mono text-emerald-400">
+                        </div>
+                        <div id="box-tolerance">
+                            <label class="block text-[10px] text-slate-400 mb-1" title="Holgura entre macho y hembra">Holgura Hembra</label>
+                            <input type="number" id="num-tolerance" value="0.22" min="0.05" max="0.60" step="0.02" onchange="window.studio.onNumberParams()" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs mono text-amber-400">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. EXPORT PANEL (FREE & UNLIMITED) -->
+                <div class="bg-gradient-to-b from-slate-900 to-slate-950 border border-emerald-500/40 rounded-xl p-3.5 space-y-2.5 shadow-lg">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">5. Exportación Directa (Sin Límites)</span>
+                    </div>
+                    <div>
+                        <input type="text" id="export-filename" value="WP_Sello_Personalizado" placeholder="Nombre del archivo..." class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs mono text-white mb-2">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="window.studio.exportMain('stl')" class="py-2.5 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow transition">
+                            <span>⬇ STL Completo</span>
+                        </button>
+                        <button onclick="window.studio.exportMain('3mf')" class="py-2.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs flex items-center justify-center gap-1.5 shadow transition">
+                            <span>🎨 3MF Multicolor</span>
+                        </button>
+                    </div>
+                    <!-- Individual plate buttons for Emboss mode -->
+                    <div id="separate-plates-export" class="grid grid-cols-2 gap-2 pt-1">
+                        <button onclick="window.studio.exportSinglePlate('macho')" class="py-1.5 px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-semibold transition">
+                            ⬇ Solo Placa Macho (.STL)
+                        </button>
+                        <button onclick="window.studio.exportSinglePlate('hembra')" class="py-1.5 px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-semibold transition">
+                            ⬇ Solo Placa Hembra (.STL)
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </aside>
+
+        <!-- 3D CANVAS VIEWPORT -->
+        <main class="flex-1 relative bg-slate-950 h-full overflow-hidden">
+            <div id="canvas-container" class="w-full h-full"></div>
+
+            <!-- Toast Notification -->
+            <div id="studio-toast" class="fixed bottom-5 right-5 z-50 hidden px-4 py-2.5 rounded-xl bg-slate-900/95 border border-emerald-500/50 text-xs font-semibold text-white shadow-2xl flex items-center gap-2"></div>
+
+            <!-- Bottom Helper Legend -->
+            <div class="absolute bottom-3 left-4 pointer-events-none flex flex-wrap items-center gap-3 text-[11px] text-slate-400 bg-slate-900/80 backdrop-blur px-3 py-1.5 rounded-lg border border-slate-800">
+                <span>🖱️ <strong>Clic Izq:</strong> Rotar 3D</span>
+                <span>🖱️ <strong>Clic Der:</strong> Mover</span>
+                <span>🖱️ <strong>Rueda:</strong> Zoom</span>
+                <span class="text-emerald-400">● Verde = Relieve / Color 2 en Bambu Studio</span>
+            </div>
+        </main>
+    </div>
+
+    <script type="module" src="/static/js/sellomaker_wp.js"></script>
+</body>
+</html>

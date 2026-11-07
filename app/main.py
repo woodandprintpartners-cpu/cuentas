@@ -61,6 +61,10 @@ def on_startup():
 def home(request: Request):
     return templates.TemplateResponse(request=request, name="index.html")
 
+@app.get("/sellomaker")
+def sellomaker_studio(request: Request):
+    return templates.TemplateResponse(request=request, name="sellomaker.html")
+
 @app.get("/api/db-status")
 def api_get_db_status():
     return get_database_status()

@@ -100,6 +100,11 @@
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
                 Stock & Materiales
             </button>
+            <button data-tab="sellomaker" class="tab-btn px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all text-emerald-300 hover:bg-slate-800 border border-emerald-500/30">
+                <span>✨</span>
+                <span>Creador Sellos & 3D (SelloMaker)</span>
+                <span class="px-1.5 py-0.5 text-[10px] font-extrabold rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">PRO</span>
+            </button>
         </div>
     </header>
 
@@ -1066,6 +1071,28 @@
                 <div id="fornituras-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                     <!-- Populated by JS -->
                 </div>
+            </div>
+        </section>
+
+        <!-- ================= TAB 5: CREADOR SELLOS & 3D (SELLOMAKER W&P) ================= -->
+        <section id="tab-sellomaker" class="tab-content space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-3 bg-slate-900/90 border border-emerald-500/30 rounded-2xl px-4 py-2.5">
+                <div class="flex items-center gap-3">
+                    <span class="text-xl">✨</span>
+                    <div>
+                        <h2 class="text-sm font-bold text-white flex items-center gap-2">
+                            W&amp;P 3D Studio — Creador de Sellos Secos, Lacre/Galletas y Medallas/Llaveros 3D
+                            <span class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">100% Ilimitado · STL &amp; 3MF Multicolor</span>
+                        </h2>
+                        <p class="text-[11px] text-slate-400">Sube cualquier SVG, PNG/JPG o escribe texto y descarga al instante el archivo .STL o .3MF listo para Bambu Studio / OrcaSlicer.</p>
+                    </div>
+                </div>
+                <a href="/sellomaker" target="_blank" class="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-600/20 transition">
+                    <span>↗ Abrir en Pantalla Completa</span>
+                </a>
+            </div>
+            <div class="w-full rounded-2xl overflow-hidden border border-slate-800 shadow-2xl bg-slate-950" style="height: calc(100vh - 11.5rem); min-height: 680px;">
+                <iframe id="sellomaker-iframe" data-src="/sellomaker" class="w-full h-full border-0" allow="clipboard-write"></iframe>
             </div>
         </section>
 

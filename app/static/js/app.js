@@ -52,6 +52,15 @@ function switchTab(tabName) {
         renderBalanceChart();
         renderEstadisticasCharts();
     }
+
+    if (tabName === 'sellomaker') {
+        const ifr = document.getElementById('sellomaker-iframe');
+        if (ifr && !ifr.getAttribute('src')) {
+            ifr.setAttribute('src', ifr.getAttribute('data-src') || '/sellomaker');
+        } else if (ifr && ifr.contentWindow) {
+            setTimeout(() => ifr.contentWindow.dispatchEvent(new Event('resize')), 80);
+        }
+    }
 }
 
 // --- DATA LOADING ---
