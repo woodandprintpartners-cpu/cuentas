@@ -389,6 +389,7 @@ ${objectsXml}
 }
 
 
+
 // --- MAIN W&P 3D STUDIO ENGINE ---
 class WP3DStudio {
     constructor() {
@@ -396,33 +397,48 @@ class WP3DStudio {
             mode: 'emboss',          // 'emboss' | 'stamp' | 'keychain'
             embossType: 'hinge',     // 'hinge' | 'magnet'
             hingeCount: 1,
-            swapPlates: true,
+            swapPlates: false,
             magnetWidth: 6.0,
             magnetDepth: 2.0,
             baseShape: 'circle',     // 'circle' | 'rect' | 'shield' | 'none'
-            width: 64.0,
-            height: 45.0,
-            cornerRadius: 5.0,
-            padding: 4.0,
+            plateWidth: 50.0,
+            plateLength: 50.0,
+            logoSize: 36.0,
             logoScale: 1.0,
             logoOffset: 0.0,
-            logoRotation: 0,
+            rotation: 0,
             flipX: false,
             thickness: 4.0,
-            relief: 0.55,
-            depth: 0.58,
-            tolerance: 0.22,
-            gap: -4.0,
-            wireframe: true,
-            darkBg: true,
+            relief: 0.70,
+            depth: 1.00,
+            tolerance: 0.55,
+            rimWidth: 1.8,
+            handleHeight: 22.0,
+            stampNegative: true,
+            stampOuterRim: true,
+            stampHandle: true,
+            loopEnabled: true,
+            loopHole: 4.5,
+            wireframe: false,
+            lightBg: false,
             svgString: PRESET_TEMPLATES[0].svg,
             svgPaths: null,
             hingeGeo: null,
-            hingeSize: new THREE.Vector3(10, 35.5, 4),
-            lastRasterImage: null
+            lastRasterImage: null,
+            customStlGeo: null,
+            useStl3DMesh: true,
+            stlCutPct: 12
         };
 
-        this._debounceTimer = null;
+        this._rebuildTimer = null;
+        this._toastTimer = null;
+        this._cachedShapes = [];
+        this.exportGroups = {
+            all: new THREE.Group(),
+            macho: new THREE.Group(),
+            hembra: new THREE.Group()
+        };
+
         this.initScene();
         this.initUI();
         this.loadHingeAndBuild();
@@ -431,13 +447,13 @@ class WP3DStudio {
     initScene() {
         const container = document.getElementById('canvas-container');
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0x0b1120);
+        this.scene.background = new THREE.Color(0x090d16);
 
-        const w = container.clientWidth || window.innerWidth - 384;
-        const h = container.clientHeight || window.innerHeight - 48;
+        const w = (container && container.clientWidth) ? container.clientWidth : (window.innerWidth - 384);
+        const h = (container && container.clientHeight) ? container.clientHeight : (window.innerHeight - 48);
 
         this.camera = new THREE.PerspectiveCamera(42, w / h, 1, 4000);
-        this.camera.position.set(0, -115, 110);
+        this.camera.position.set(0, -95, 100);
         this.camera.up.set(0, 0, 1);
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -445,25 +461,26 @@ class WP3DStudio {
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        container.innerHTML = '';
-        container.appendChild(this.renderer.domElement);
+        if (container) {
+            container.innerHTML = '';
+            container.appendChild(this.renderer.domElement);
+        }
 
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.08;
         this.controls.screenSpacePanning = true;
 
-        // Lighting
-        const amb = new THREE.AmbientLight(0xffffff, 0.55);
+        const amb = new THREE.AmbientLight(0xffffff, 0.65);
         this.scene.add(amb);
 
-        const dir1 = new THREE.DirectionalLight(0xffffff, 1.25);
-        dir1.position.set(40, -50, 140);
+        const dir1 = new THREE.DirectionalLight(0xffffff, 1.3);
+        dir1.position.set(45, -60, 140);
         dir1.castShadow = true;
         this.scene.add(dir1);
 
-        const dir2 = new THREE.DirectionalLight(0x93c5fd, 0.45);
-        dir2.position.set(-60, 60, 50);
+        const dir2 = new THREE.DirectionalLight(0x93c5fd, 0.5);
+        dir2.position.set(-60, 65, 60);
         this.scene.add(dir2);
 
         this.grid = new THREE.GridHelper(320, 32, 0x334155, 0x1e293b);
@@ -472,17 +489,13 @@ class WP3DStudio {
 
         this.mainGroup = new THREE.Group();
         this.scene.add(this.mainGroup);
-        this.hingeGroup = new THREE.Group();
-        this.platesGroup = new THREE.Group();
-        this.mainGroup.add(this.hingeGroup);
-        this.mainGroup.add(this.platesGroup);
 
-        // Materials
-        this.mats = {
-            baseWhite: new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.42, metalness: 0.08 }),
-            accentGreen: new THREE.MeshStandardMaterial({ color: 0x10b981, roughness: 0.35, metalness: 0.1 }),
-            waxGold: new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.3, metalness: 0.25 }),
-            handleWood: new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.55, metalness: 0.05 })
+        // Unified Materials (used by 3MF exporter & all 3 modes)
+        this.materials = {
+            darkPlate:   new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.42, metalness: 0.08 }),
+            hinge:       new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.45, metalness: 0.12 }),
+            accentGreen: new THREE.MeshStandardMaterial({ color: 0x10b981, roughness: 0.32, metalness: 0.12 }),
+            brass:       new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.30, metalness: 0.25 })
         };
 
         window.addEventListener('resize', () => this.onResize());
@@ -510,22 +523,26 @@ class WP3DStudio {
         const t = document.getElementById('studio-toast');
         if (!t) return;
         t.innerHTML = msg;
-        t.classList.remove('hidden');
+        t.classList.remove('hidden', 'opacity-0', 'pointer-events-none', 'translate-y-2');
         clearTimeout(this._toastTimer);
-        this._toastTimer = setTimeout(() => t.classList.add('hidden'), 3800);
+        this._toastTimer = setTimeout(() => {
+            t.classList.add('hidden');
+        }, 3800);
     }
 
     initUI() {
-        // Populate preset templates
         const grid = document.getElementById('preset-grid');
         if (grid) {
             grid.innerHTML = '';
-            PRESET_TEMPLATES.forEach((tpl, idx) => {
+            PRESET_TEMPLATES.forEach((tpl) => {
                 const btn = document.createElement('button');
                 btn.type = 'button';
                 btn.className = 'p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-emerald-500 flex flex-col items-center gap-1 text-center transition';
                 btn.innerHTML = `<span class="text-xl">${tpl.icon}</span><span class="text-[10px] font-semibold text-slate-200 leading-tight">${tpl.name}</span>`;
                 btn.onclick = async () => {
+                    this.state.customStlGeo = null;
+                    document.getElementById('stl-controls')?.classList.add('hidden');
+                    document.getElementById('raster-controls')?.classList.add('hidden');
                     if (tpl.url) {
                         const res = await fetch(tpl.url);
                         const txt = await res.text();
@@ -538,12 +555,14 @@ class WP3DStudio {
             });
         }
 
-        // File input & Drag-and-drop
         const fileInput = document.getElementById('file-input');
         const dropZone = document.getElementById('drop-zone');
         if (fileInput) {
             fileInput.addEventListener('change', (e) => {
-                if (e.target.files && e.target.files[0]) this.handleFile(e.target.files[0]);
+                if (e.target.files && e.target.files[0]) {
+                    this.handleFile(e.target.files[0]);
+                    e.target.value = '';
+                }
             });
         }
         if (dropZone) {
@@ -555,6 +574,7 @@ class WP3DStudio {
                 if (e.dataTransfer.files && e.dataTransfer.files[0]) this.handleFile(e.dataTransfer.files[0]);
             });
         }
+        this.syncUIInputs();
     }
 
     async loadHingeAndBuild() {
@@ -575,7 +595,7 @@ class WP3DStudio {
         if (!this.state.hingeGeo) {
             this.state.hingeGeo = new THREE.BoxGeometry(10, 35.5, 4);
         }
-        this.loadSVGString(this.state.svgString);
+        this.loadSVGString(this.state.svgString, 'Sello W&P');
     }
 
     handleFile(file) {
@@ -584,12 +604,21 @@ class WP3DStudio {
         const fnInput = document.getElementById('export-filename');
         if (fnInput) fnInput.value = `WP_${baseName}`;
 
-        if (name.endsWith('.svg')) {
+        if (name.endsWith('.stl')) {
+            document.getElementById('raster-controls')?.classList.add('hidden');
+            const reader = new FileReader();
+            reader.onload = (ev) => this.loadSTLBuffer(ev.target.result, file.name);
+            reader.readAsArrayBuffer(file);
+        } else if (name.endsWith('.svg')) {
+            this.state.customStlGeo = null;
+            document.getElementById('stl-controls')?.classList.add('hidden');
             document.getElementById('raster-controls')?.classList.add('hidden');
             const reader = new FileReader();
             reader.onload = (ev) => this.loadSVGString(ev.target.result, file.name);
             reader.readAsText(file);
         } else if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.webp')) {
+            this.state.customStlGeo = null;
+            document.getElementById('stl-controls')?.classList.add('hidden');
             const reader = new FileReader();
             reader.onload = (ev) => {
                 const img = new Image();
@@ -602,8 +631,170 @@ class WP3DStudio {
             };
             reader.readAsDataURL(file);
         } else {
-            this.showToast('⚠️ Formato no soportado. Usa .SVG, .PNG o .JPG');
+            this.showToast('⚠️ Formato no soportado. Usa .STL, .SVG, .PNG o .JPG');
         }
+    }
+
+    // --- NATIVE .STL UPLOAD & CONTOUR EXTRACTION ---
+    loadSTLBuffer(arrayBuffer, label = 'Modelo STL') {
+        try {
+            const loader = new STLLoader();
+            const geo = loader.parse(arrayBuffer);
+            if (!geo || !geo.attributes.position || geo.attributes.position.count === 0) {
+                this.showToast('❌ El archivo .STL está vacío o dañado.');
+                return;
+            }
+            geo.computeVertexNormals();
+            geo.computeBoundingBox();
+            const bb = geo.boundingBox;
+            const cx = (bb.min.x + bb.max.x) / 2;
+            const cy = (bb.min.y + bb.max.y) / 2;
+            geo.translate(-cx, -cy, -bb.min.z);
+            geo.computeBoundingBox();
+
+            this.state.customStlGeo = geo;
+            this.state.useStl3DMesh = true;
+            const useMeshChk = document.getElementById('stl-use-3d-mesh');
+            if (useMeshChk) useMeshChk.checked = true;
+            document.getElementById('stl-controls')?.classList.remove('hidden');
+
+            // Auto-adjust relief height to match STL relief if reasonable
+            const zSpan = geo.boundingBox.max.z - geo.boundingBox.min.z;
+            if (zSpan > 0.3 && zSpan <= 8.0 && this.state.mode !== 'emboss') {
+                this.state.relief = Math.round(zSpan * 20) / 20;
+                this.syncUIInputs();
+            }
+
+            this.updateContourFromLoadedSTL();
+            this.rebuild();
+            this.showToast(`✅ Malla 3D "${label}" cargada (${(geo.attributes.position.count / 3).toLocaleString('es-ES')} triángulos)`);
+        } catch (err) {
+            console.error('Error al cargar STL:', err);
+            this.showToast('❌ Error al leer el archivo .STL');
+        }
+    }
+
+    onStlControlChange() {
+        const use3d = document.getElementById('stl-use-3d-mesh')?.checked ?? true;
+        const cutPct = parseInt(document.getElementById('stl-cut-pct')?.value || '12', 10);
+        const cutVal = document.getElementById('stl-cut-val');
+        if (cutVal) cutVal.innerText = `${cutPct}%`;
+        this.state.useStl3DMesh = use3d;
+        this.state.stlCutPct = cutPct;
+        if (this.state.customStlGeo) {
+            this.updateContourFromLoadedSTL();
+            this.rebuildDebounced();
+        }
+    }
+
+    updateContourFromLoadedSTL() {
+        const geo = this.state.customStlGeo;
+        if (!geo) return;
+        geo.computeBoundingBox();
+        const bb = geo.boundingBox;
+        const w = (bb.max.x - bb.min.x) || 40;
+        const h = (bb.max.y - bb.min.y) || 40;
+        const zSpan = (bb.max.z - bb.min.z) || 1;
+        const zThresh = bb.min.z + zSpan * ((this.state.stlCutPct || 0) / 100.0);
+
+        const gw = 180, gh = 180;
+        const grid = new Uint8Array(gw * gh);
+        const pos = geo.attributes.position;
+        const maxSpan = Math.max(w, h) * 1.08;
+        const toX = (x) => ((x - (bb.min.x + bb.max.x) / 2) / maxSpan + 0.5) * (gw - 1);
+        const toY = (y) => (0.5 - (y - (bb.min.y + bb.max.y) / 2) / maxSpan) * (gh - 1);
+
+        const triCount = pos.count / 3;
+        for (let i = 0; i < triCount; i++) {
+            const z0 = pos.getZ(i * 3), z1 = pos.getZ(i * 3 + 1), z2 = pos.getZ(i * 3 + 2);
+            if (Math.max(z0, z1, z2) <= zThresh) continue;
+
+            const x0 = toX(pos.getX(i * 3)), y0 = toY(pos.getY(i * 3));
+            const x1 = toX(pos.getX(i * 3 + 1)), y1 = toY(pos.getY(i * 3 + 1));
+            const x2 = toX(pos.getX(i * 3 + 2)), y2 = toY(pos.getY(i * 3 + 2));
+
+            const minX = Math.max(0, Math.floor(Math.min(x0, x1, x2)));
+            const maxX = Math.min(gw - 1, Math.ceil(Math.max(x0, x1, x2)));
+            const minY = Math.max(0, Math.floor(Math.min(y0, y1, y2)));
+            const maxY = Math.min(gh - 1, Math.ceil(Math.max(y0, y1, y2)));
+
+            const denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+            if (Math.abs(denom) < 1e-6) {
+                grid[minY * gw + minX] = 1;
+                continue;
+            }
+            for (let py = minY; py <= maxY; py++) {
+                for (let px = minX; px <= maxX; px++) {
+                    const a = ((y1 - y2) * (px - x2) + (x2 - x1) * (py - y2)) / denom;
+                    const b = ((y2 - y0) * (px - x2) + (x0 - x2) * (py - y2)) / denom;
+                    const c = 1 - a - b;
+                    if (a >= -0.05 && b >= -0.05 && c >= -0.05) {
+                        grid[py * gw + px] = 1;
+                    }
+                }
+            }
+        }
+
+        const svg = binaryGridToSVG(grid, gw, gh, 0.55);
+        if (svg) {
+            try {
+                const parsed = new SVGLoader().parse(svg);
+                const shapes = [];
+                for (const p of parsed.paths || []) {
+                    shapes.push(...SVGLoader.createShapes(p));
+                }
+                if (shapes.length) {
+                    this._cachedShapes = shapes;
+                }
+            } catch (e) {
+                console.warn('Error extrayendo silueta STL:', e);
+            }
+        }
+    }
+
+    buildTransformedStlMesh(targetSize, targetZDepth, zStart, offsetX = 0, extraMirrorX = false) {
+        const srcGeo = this.state.customStlGeo;
+        if (!srcGeo) return null;
+
+        srcGeo.computeBoundingBox();
+        const bb = srcGeo.boundingBox;
+        const spanX = (bb.max.x - bb.min.x) || 1;
+        const spanY = (bb.max.y - bb.min.y) || 1;
+        const spanZ = (bb.max.z - bb.min.z) || 1;
+        const cutRatio = (this.state.stlCutPct || 0) / 100.0;
+        const zCut = bb.min.z + spanZ * cutRatio;
+        const activeZSpan = Math.max(0.1, bb.max.z - zCut);
+
+        const xyScale = (targetSize * (this.state.logoScale || 1.0)) / Math.max(spanX, spanY);
+        const zScale = targetZDepth / activeZSpan;
+        const mirrorSign = (this.state.flipX ? -1 : 1) * (extraMirrorX ? -1 : 1);
+        const rad = THREE.MathUtils.degToRad(this.state.rotation || 0);
+        const cosA = Math.cos(rad), sinA = Math.sin(rad);
+
+        const pos = srcGeo.attributes.position;
+        const triCount = pos.count / 3;
+        const outCoords = [];
+
+        for (let i = 0; i < triCount; i++) {
+            const z0 = pos.getZ(i * 3), z1 = pos.getZ(i * 3 + 1), z2 = pos.getZ(i * 3 + 2);
+            if (Math.max(z0, z1, z2) <= zCut && cutRatio > 0) continue;
+
+            const idxs = mirrorSign < 0 ? [i * 3, i * 3 + 2, i * 3 + 1] : [i * 3, i * 3 + 1, i * 3 + 2];
+            for (const idx of idxs) {
+                const vx = pos.getX(idx) * xyScale;
+                const vy = pos.getY(idx) * xyScale;
+                const rx = (vx * cosA - vy * sinA) * mirrorSign + offsetX + (this.state.logoOffset || 0);
+                const ry = (vx * sinA + vy * cosA);
+                const rz = Math.max(0, (pos.getZ(idx) - zCut) * zScale) + zStart;
+                outCoords.push(rx, ry, rz);
+            }
+        }
+
+        if (outCoords.length === 0) return null;
+        const outGeo = new THREE.BufferGeometry();
+        outGeo.setAttribute('position', new THREE.Float32BufferAttribute(outCoords, 3));
+        outGeo.computeVertexNormals();
+        return new THREE.Mesh(outGeo, this.materials.accentGreen);
     }
 
     retraceRaster() {
@@ -653,6 +844,8 @@ class WP3DStudio {
             return;
         }
         try {
+            this.state.customStlGeo = null;
+            document.getElementById('stl-controls')?.classList.add('hidden');
             const entry = FONTS[fontName];
             if (!entry.loaded) {
                 this.showToast('⏳ Cargando tipografía 3D...');
@@ -771,13 +964,11 @@ class WP3DStudio {
         }
     }
 
-
     rebuildDebounced() {
         if (this._rebuildTimer) clearTimeout(this._rebuildTimer);
-        this._rebuildTimer = setTimeout(() => this.rebuild(), 90);
+        this._rebuildTimer = setTimeout(() => this.rebuild(), 80);
     }
 
-    // --- 2D Geometry Helpers ---
     offsetPolygon(points, distance) {
         if (!points || points.length < 3 || Math.abs(distance) < 1e-4) return points;
         const clean = [];
@@ -895,7 +1086,6 @@ class WP3DStudio {
         return s;
     }
 
-    // Pre-transforms SVG shapes so they are centered at (0,0), scaled to target size, rotated, and optionally mirrored
     prepareLogoShapes(targetSize, extraMirrorX = false) {
         const rawShapes = this._cachedShapes || [];
         if (!rawShapes.length) return { shapes: [], width: 0, height: 0 };
@@ -914,18 +1104,19 @@ class WP3DStudio {
         const svgH = (maxY - minY) || 100;
         const svgCX = (minX + maxX) / 2;
         const svgCY = (minY + maxY) / 2;
-        const scale = targetSize / Math.max(svgW, svgH);
+        const scale = (targetSize * (this.state.logoScale || 1.0)) / Math.max(svgW, svgH);
 
         const rad = THREE.MathUtils.degToRad(this.state.rotation || 0);
         const cosA = Math.cos(rad), sinA = Math.sin(rad);
         const mirrorSign = (this.state.flipX ? -1 : 1) * (extraMirrorX ? -1 : 1);
+        const offX = (this.state.logoOffset || 0) * (extraMirrorX ? -1 : 1);
 
         const xform = (pt) => {
             let x = (pt.x - svgCX) * scale;
-            let y = -(pt.y - svgCY) * scale; // Flip SVG Y axis
+            let y = -(pt.y - svgCY) * scale;
             const rx = x * cosA - y * sinA;
             const ry = x * sinA + y * cosA;
-            return new THREE.Vector2(rx * mirrorSign, ry);
+            return new THREE.Vector2(rx * mirrorSign + offX, ry);
         };
 
         let outMinX = Infinity, outMaxX = -Infinity, outMinY = Infinity, outMaxY = -Infinity;
@@ -970,7 +1161,7 @@ class WP3DStudio {
     }
 
     rebuild() {
-        if (!this._cachedShapes || !this._cachedShapes.length) return;
+        if ((!this._cachedShapes || !this._cachedShapes.length) && !this.state.customStlGeo) return;
         this.clearScene();
 
         if (this.state.mode === 'emboss') {
@@ -984,35 +1175,28 @@ class WP3DStudio {
         this.updateMetricsOverlay();
     }
 
-    // =========================================================================
-    // MODE 1: EMBOSSING STAMP (Sello Seco Macho + Hembra con Bisagra o Imanes)
-    // =========================================================================
     buildEmbossModel() {
         const s = this.state;
         const isMagnet = s.embossType === 'magnet';
         const hingeW = 10, hingeL = 35.5, overlap = 0.05;
 
-        const maxAllowedLogo = isMagnet ? Math.min(s.plateWidth, s.plateLength) - 14 : Math.min(s.plateWidth, s.plateLength) - 8;
-        const effectiveSize = Math.min(s.logoSize, Math.max(10, maxAllowedLogo));
-
-        // Base plate dimensions
         let pW = s.plateWidth;
         let pL = s.plateLength;
         if (!isMagnet && s.hingeCount === 3) {
             pL = Math.max(pL, hingeL * 3 - 8);
         }
 
+        const maxAllowedLogo = isMagnet ? Math.min(pW, pL) - 12 : Math.min(pW, pL) - 7;
+        const effectiveSize = Math.max(10, maxAllowedLogo * 0.85);
+
         const rightIsMale = !s.swapPlates;
         const maleX = isMagnet
             ? (rightIsMale ? (pW / 2 + 5) : -(pW / 2 + 5))
             : (rightIsMale ? (hingeW / 2 + pW / 2 - overlap) : -(hingeW / 2 + pW / 2 - overlap));
         const femaleX = -maleX;
-
         const baseLayerDepth = Math.max(1.0, s.thickness - s.depth);
 
-        // --- Build Hinges or Magnet Bases ---
         if (!isMagnet) {
-            // Hinges in the center
             if (this.state.hingeGeo) {
                 const positions = s.hingeCount === 1 ? [0]
                     : s.hingeCount === 2 ? [-(hingeL / 2 - 2), (hingeL / 2 - 2)]
@@ -1024,7 +1208,6 @@ class WP3DStudio {
                 });
             }
 
-            // Solid base for Male
             const mSide = maleX > 0 ? 'right' : 'left';
             const mShape = this.createRoundedRect(pW, pL, 4, mSide);
             const mGeo = new THREE.ExtrudeGeometry(mShape, { depth: s.thickness, bevelEnabled: false });
@@ -1033,7 +1216,6 @@ class WP3DStudio {
             this.mainGroup.add(mMesh);
             this.exportGroups.macho.add(mMesh.clone());
 
-            // Bottom base for Female (thickness - depth)
             const fSide = femaleX > 0 ? 'right' : 'left';
             const fShape = this.createRoundedRect(pW, pL, 4, fSide);
             const fGeo = new THREE.ExtrudeGeometry(fShape, { depth: baseLayerDepth, bevelEnabled: false });
@@ -1042,13 +1224,11 @@ class WP3DStudio {
             this.mainGroup.add(fMesh);
             this.exportGroups.hembra.add(fMesh.clone());
         } else {
-            // MAGNET MODE: Blind magnet holes + leverage side notches
             const magR = (s.magnetWidth / 2) + 0.05;
             const holeOffX = (pW / 2) - 5.0 - magR;
             const holeOffY = (pL / 2) - 5.0 - magR;
             const solidBottom = Math.max(0.8, s.thickness - s.magnetDepth - 0.1);
 
-            // Male Magnet Plate
             const mNotch = maleX > 0 ? 'right' : 'left';
             const mBaseShape = this.createMagnetPlateShape(pW, pL, 4, mNotch);
             const mBotGeo = new THREE.ExtrudeGeometry(mBaseShape, { depth: solidBottom, bevelEnabled: false });
@@ -1067,7 +1247,6 @@ class WP3DStudio {
             this.mainGroup.add(mTopMesh);
             this.exportGroups.macho.add(mTopMesh.clone());
 
-            // Female Magnet Plate
             const fNotch = femaleX > 0 ? 'right' : 'left';
             const fBaseShape = this.createMagnetPlateShape(pW, pL, 4, fNotch);
             const fBotGeo = new THREE.ExtrudeGeometry(fBaseShape, { depth: solidBottom, bevelEnabled: false });
@@ -1090,22 +1269,26 @@ class WP3DStudio {
             }
         }
 
-        // --- Build Male Relief + Female Cavity + Inner Islands ---
-        const maleLogo = this.prepareLogoShapes(effectiveSize, false);
-        // On hinge mode, when the two plates fold together around X=0, the female side mirrors X relative to male.
-        // In both hinge and magnet modes, female cavity is mirrored horizontally so that when pressed face-to-face they match!
+        // Male Relief (either 3D STL mesh or extruded SVG)
+        if (s.customStlGeo && s.useStl3DMesh) {
+            const stlMesh = this.buildTransformedStlMesh(effectiveSize, s.relief + overlap, s.thickness - overlap, maleX, false);
+            if (stlMesh) {
+                this.mainGroup.add(stlMesh);
+                this.exportGroups.macho.add(stlMesh.clone());
+            }
+        } else {
+            const maleLogo = this.prepareLogoShapes(effectiveSize, false);
+            maleLogo.shapes.forEach(sh => {
+                const rGeo = new THREE.ExtrudeGeometry(sh, { depth: s.relief + overlap, bevelEnabled: false });
+                rGeo.translate(maleX, 0, s.thickness - overlap);
+                const rMesh = new THREE.Mesh(rGeo, this.materials.accentGreen);
+                this.mainGroup.add(rMesh);
+                this.exportGroups.macho.add(rMesh.clone());
+            });
+        }
+
+        // Female Cavity + Counter-Islands
         const femaleLogo = this.prepareLogoShapes(effectiveSize, true);
-
-        // 1. Male Relief (Green accent)
-        maleLogo.shapes.forEach(sh => {
-            const rGeo = new THREE.ExtrudeGeometry(sh, { depth: s.relief + overlap, bevelEnabled: false });
-            rGeo.translate(maleX, 0, s.thickness - overlap);
-            const rMesh = new THREE.Mesh(rGeo, this.materials.accentGreen);
-            this.mainGroup.add(rMesh);
-            this.exportGroups.macho.add(rMesh.clone());
-        });
-
-        // 2. Female Top Frame with Offset Cavity + Counter-Islands
         const fFrameShape = isMagnet
             ? this.createMagnetPlateShape(pW, pL, 4, femaleX > 0 ? 'right' : 'left')
             : this.createRoundedRect(pW, pL, 4, femaleX > 0 ? 'right' : 'left');
@@ -1120,12 +1303,10 @@ class WP3DStudio {
         }
 
         femaleLogo.shapes.forEach(sh => {
-            // Outer contour expanded by +tolerance becomes a hole in the female top plate
             const outerPts = sh.getPoints();
             const expandedPts = this.offsetPolygon(outerPts, s.tolerance);
             fFrameShape.holes.push(new THREE.Path(expandedPts));
 
-            // Inner holes contracted by -tolerance become positive islands on the female plate
             if (sh.holes && sh.holes.length > 0) {
                 sh.holes.forEach(h => {
                     const hPts = h.getPoints();
@@ -1149,28 +1330,38 @@ class WP3DStudio {
         this.exportGroups.hembra.add(fTopMesh.clone());
     }
 
-    // =========================================================================
-    // MODE 2: SELLO LACRE / GALLETA / ARCILLA (Con Mango 3D Ergonómico)
-    // =========================================================================
     buildStampModel() {
         const s = this.state;
         const overlap = 0.08;
         const radius = Math.max(s.plateWidth, s.plateLength) / 2;
-        const effectiveSize = Math.min(s.logoSize, (radius * 2) - (s.rimWidth * 2) - 3);
-
-        // Mirror horizontally so the stamped impression reads right-side-up!
-        const logo = this.prepareLogoShapes(Math.max(8, effectiveSize), true);
+        const hasRim = document.getElementById('stamp-outer-rim')?.checked ?? true;
+        const isNeg = document.getElementById('stamp-invert-relief')?.checked ?? s.stampNegative;
+        const hasHnd = document.getElementById('stamp-handle')?.checked ?? s.stampHandle;
+        const effectiveSize = Math.max(8, (radius * 2) - (hasRim ? s.rimWidth * 2 : 0) - 4);
 
         const baseShape = new THREE.Shape();
         baseShape.absarc(0, 0, radius, 0, Math.PI * 2, false);
 
-        if (s.stampNegative) {
-            // WAX / CLAY STAMP: Base disc + top cavity layer where logo is carved in + outer rim
+        if (s.customStlGeo && s.useStl3DMesh) {
             const botGeo = new THREE.ExtrudeGeometry(baseShape, { depth: s.thickness, bevelEnabled: false });
-            const botMesh = new THREE.Mesh(botGeo, this.materials.brass);
-            this.mainGroup.add(botMesh);
+            this.mainGroup.add(new THREE.Mesh(botGeo, this.materials.darkPlate));
+            if (hasRim && s.rimWidth > 0) {
+                const rimShape = new THREE.Shape();
+                rimShape.absarc(0, 0, radius, 0, Math.PI * 2, false);
+                const innerHole = new THREE.Path();
+                innerHole.absarc(0, 0, Math.max(2, radius - s.rimWidth), 0, Math.PI * 2, true);
+                rimShape.holes.push(innerHole);
+                const rimGeo = new THREE.ExtrudeGeometry(rimShape, { depth: s.relief + overlap, bevelEnabled: false });
+                rimGeo.translate(0, 0, s.thickness - overlap);
+                this.mainGroup.add(new THREE.Mesh(rimGeo, this.materials.accentGreen));
+            }
+            const stlMesh = this.buildTransformedStlMesh(effectiveSize, s.relief + overlap, s.thickness - overlap, 0, true);
+            if (stlMesh) this.mainGroup.add(stlMesh);
+        } else if (isNeg) {
+            const logo = this.prepareLogoShapes(effectiveSize, true);
+            const botGeo = new THREE.ExtrudeGeometry(baseShape, { depth: s.thickness, bevelEnabled: false });
+            this.mainGroup.add(new THREE.Mesh(botGeo, this.materials.brass));
 
-            // Top layer with logo carved out as negative cavity
             const cavityFrame = new THREE.Shape();
             cavityFrame.absarc(0, 0, radius, 0, Math.PI * 2, false);
 
@@ -1190,11 +1381,11 @@ class WP3DStudio {
             cavGeo.translate(0, 0, s.thickness - overlap);
             this.mainGroup.add(new THREE.Mesh(cavGeo, this.materials.accentGreen));
         } else {
-            // COOKIE / FONDANT STAMP: Base plate + raised cutter outer rim + raised inner logo
+            const logo = this.prepareLogoShapes(effectiveSize, true);
             const botGeo = new THREE.ExtrudeGeometry(baseShape, { depth: s.thickness, bevelEnabled: false });
             this.mainGroup.add(new THREE.Mesh(botGeo, this.materials.darkPlate));
 
-            if (s.rimWidth > 0) {
+            if (hasRim && s.rimWidth > 0) {
                 const rimShape = new THREE.Shape();
                 rimShape.absarc(0, 0, radius, 0, Math.PI * 2, false);
                 const innerHole = new THREE.Path();
@@ -1213,8 +1404,7 @@ class WP3DStudio {
             });
         }
 
-        // Ergonomic 3D-printable Handle on the back (-Z)
-        if (s.stampHandle && s.handleHeight > 0) {
+        if (hasHnd && s.handleHeight > 0) {
             const hH = s.handleHeight;
             const baseR = Math.min(radius * 0.55, 14);
             const profile = [
@@ -1227,25 +1417,22 @@ class WP3DStudio {
                 new THREE.Vector2(0, hH)
             ];
             const latheGeo = new THREE.LatheGeometry(profile, 36);
-            latheGeo.rotateX(-Math.PI / 2); // Point along -Z
+            latheGeo.rotateX(-Math.PI / 2);
             latheGeo.translate(0, 0, overlap);
-            const handleMesh = new THREE.Mesh(latheGeo, this.materials.darkPlate);
-            this.mainGroup.add(handleMesh);
+            this.mainGroup.add(new THREE.Mesh(latheGeo, this.materials.darkPlate));
         }
     }
 
-    // =========================================================================
-    // MODE 3: MEDALLA / LLAVERO / CHAPA 3D MULTICOLOR (.STL + .3MF)
-    // =========================================================================
     buildKeychainModel() {
         const s = this.state;
         const overlap = 0.08;
         const w = s.plateWidth;
         const h = s.plateLength;
+        const hasLoop = document.getElementById('kc-loop')?.checked ?? s.loopEnabled;
+        const hasRim = document.getElementById('kc-rim')?.checked ?? true;
+        const holeDia = parseFloat(document.getElementById('kc-hole-dia')?.value || String(s.loopHole));
+        const effectiveSize = Math.min(w, h) * 0.82;
 
-        const logo = this.prepareLogoShapes(s.logoSize, false);
-
-        // 1. Base Plate (Circle, Rounded Rect, Shield, or None)
         if (s.baseShape !== 'none') {
             let plateShape;
             if (s.baseShape === 'circle') {
@@ -1260,8 +1447,7 @@ class WP3DStudio {
             const baseGeo = new THREE.ExtrudeGeometry(plateShape, { depth: s.thickness, bevelEnabled: false });
             this.mainGroup.add(new THREE.Mesh(baseGeo, this.materials.darkPlate));
 
-            // Optional Raised Outer Border Rim (Bisel Exterior)
-            if (s.rimWidth > 0) {
+            if (hasRim && s.rimWidth > 0) {
                 let outerRim;
                 if (s.baseShape === 'circle') {
                     outerRim = new THREE.Shape();
@@ -1285,9 +1471,8 @@ class WP3DStudio {
             }
         }
 
-        // 2. Top Keychain Loop (Anilla Superior)
-        if (s.loopEnabled && s.loopHole > 0) {
-            const holeR = s.loopHole / 2;
+        if (hasLoop && holeDia > 0) {
+            const holeR = holeDia / 2;
             const outerR = holeR + 2.4;
             const topY = (s.baseShape === 'circle' ? w / 2 : h / 2);
 
@@ -1301,80 +1486,64 @@ class WP3DStudio {
             this.mainGroup.add(new THREE.Mesh(loopGeo, this.materials.darkPlate));
         }
 
-        // 3. Raised SVG / Vectorized Relief (Multicolor Extruder 2 in .3MF)
         const zStart = s.baseShape === 'none' ? 0 : (s.thickness - overlap);
         const zDepth = s.baseShape === 'none' ? (s.thickness + s.relief) : (s.relief + overlap);
 
-        logo.shapes.forEach(sh => {
-            const rGeo = new THREE.ExtrudeGeometry(sh, { depth: zDepth, bevelEnabled: false });
-            rGeo.translate(0, 0, zStart);
-            this.mainGroup.add(new THREE.Mesh(rGeo, this.materials.accentGreen));
-        });
+        if (s.customStlGeo && s.useStl3DMesh) {
+            const stlMesh = this.buildTransformedStlMesh(effectiveSize, zDepth, zStart, 0, false);
+            if (stlMesh) this.mainGroup.add(stlMesh);
+        } else {
+            const logo = this.prepareLogoShapes(effectiveSize, false);
+            logo.shapes.forEach(sh => {
+                const rGeo = new THREE.ExtrudeGeometry(sh, { depth: zDepth, bevelEnabled: false });
+                rGeo.translate(0, 0, zStart);
+                this.mainGroup.add(new THREE.Mesh(rGeo, this.materials.accentGreen));
+            });
+        }
     }
 
-    // =========================================================================
-    // UI EVENT HANDLERS & CONTROLS
-    // =========================================================================
     updateMetricsOverlay() {
-        let tris = 0;
         const box = new THREE.Box3();
         this.mainGroup.traverse(obj => {
             if (obj.isMesh && obj.geometry) {
-                const pos = obj.geometry.attributes.position;
-                if (pos) tris += obj.geometry.index ? obj.geometry.index.count / 3 : pos.count / 3;
                 obj.updateMatrixWorld(true);
                 box.expandByObject(obj);
             }
         });
         const sz = new THREE.Vector3();
         box.getSize(sz);
-        const dimEl = document.getElementById('hud-dims');
-        const triEl = document.getElementById('hud-tris');
-        const badgeEl = document.getElementById('hud-mode-badge');
+        const dimEl = document.getElementById('dim-readout');
         if (dimEl && isFinite(sz.x)) {
             dimEl.innerText = `${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)} mm`;
-        }
-        if (triEl) triEl.innerText = `${Math.round(tris).toLocaleString('es-ES')} triángulos`;
-        if (badgeEl) {
-            badgeEl.innerText = this.state.mode === 'emboss'
-                ? `Modo: Sello Seco (${this.state.embossType === 'hinge' ? 'Bisagra' : 'Imanes'})`
-                : this.state.mode === 'stamp'
-                ? `Modo: Sello ${this.state.stampNegative ? 'Lacre / Arcilla' : 'Galleta / Cortador'}`
-                : `Modo: Medalla / Llavero 3D`;
         }
     }
 
     setMode(mode) {
         this.state.mode = mode;
         ['emboss', 'stamp', 'keychain'].forEach(m => {
-            const btn = document.getElementById(`mode-btn-${m}`);
-            if (btn) btn.classList.toggle('active', m === mode);
+            document.getElementById(`mode-${m}`)?.classList.toggle('active', m === mode);
         });
 
-        document.getElementById('panel-emboss')?.classList.toggle('hidden', mode !== 'emboss');
-        document.getElementById('panel-stamp')?.classList.toggle('hidden', mode !== 'stamp');
-        document.getElementById('panel-keychain')?.classList.toggle('hidden', mode !== 'keychain');
-        document.getElementById('export-split-emboss')?.classList.toggle('hidden', mode !== 'emboss');
-        document.getElementById('ctrl-depth-wrap')?.classList.toggle('hidden', mode !== 'emboss');
-        document.getElementById('ctrl-tol-wrap')?.classList.toggle('hidden', mode !== 'emboss');
+        document.getElementById('config-emboss')?.classList.toggle('hidden', mode !== 'emboss');
+        document.getElementById('config-stamp')?.classList.toggle('hidden', mode !== 'stamp');
+        document.getElementById('config-keychain')?.classList.toggle('hidden', mode !== 'keychain');
+        document.getElementById('separate-plates-export')?.classList.toggle('hidden', mode !== 'emboss');
+        document.getElementById('box-tolerance')?.classList.toggle('hidden', mode !== 'emboss');
 
         if (mode === 'stamp') {
             this.state.plateWidth = 42;
             this.state.plateLength = 42;
-            this.state.logoSize = 32;
-            this.state.relief = 2.0;
+            this.state.relief = 1.8;
         } else if (mode === 'keychain') {
             this.state.plateWidth = 55;
             this.state.plateLength = 55;
-            this.state.logoSize = 44;
             this.state.thickness = 3.0;
             this.state.relief = 1.6;
         } else {
             this.state.plateWidth = 50;
             this.state.plateLength = 50;
-            this.state.logoSize = 36;
             this.state.thickness = 4.0;
-            this.state.relief = 0.7;
+            this.state.relief = 0.70;
         }
         this.syncUIInputs();
         this.rebuild();
@@ -1382,18 +1551,24 @@ class WP3DStudio {
     }
 
     setSourceTab(tab) {
-        ['upload', 'text', 'presets'].forEach(t => {
-            document.getElementById(`src-tab-${t}`)?.classList.toggle('active', t === tab);
+        const tabs = ['upload', 'text', 'icons'];
+        tabs.forEach(t => {
+            const btn = document.getElementById(`src-tab-${t}`);
+            if (btn) {
+                btn.classList.toggle('bg-slate-800', t === tab);
+                btn.classList.toggle('text-white', t === tab);
+                btn.classList.toggle('text-slate-400', t !== tab);
+            }
             document.getElementById(`src-panel-${t}`)?.classList.toggle('hidden', t !== tab);
         });
     }
 
     setEmbossType(type) {
         this.state.embossType = type;
-        document.getElementById('emboss-type-hinge')?.classList.toggle('active', type === 'hinge');
-        document.getElementById('emboss-type-magnet')?.classList.toggle('active', type === 'magnet');
-        document.getElementById('hinge-controls')?.classList.toggle('hidden', type !== 'hinge');
-        document.getElementById('magnet-controls')?.classList.toggle('hidden', type !== 'magnet');
+        document.getElementById('emboss-hinge-btn')?.classList.toggle('active', type === 'hinge');
+        document.getElementById('emboss-magnet-btn')?.classList.toggle('active', type === 'magnet');
+        document.getElementById('row-hinge-count')?.classList.toggle('hidden', type !== 'hinge');
+        document.getElementById('row-magnet-config')?.classList.toggle('hidden', type !== 'magnet');
         if (type === 'magnet' && this.state.thickness < this.state.magnetDepth + 1.5) {
             this.state.thickness = this.state.magnetDepth + 1.5;
         }
@@ -1405,10 +1580,10 @@ class WP3DStudio {
         document.querySelectorAll('.mat-preset-btn').forEach(b => b.classList.remove('active'));
         if (btnEl) btnEl.classList.add('active');
         const map = {
-            foil:   { relief: 0.55, depth: 0.90, tolerance: 0.40 },
-            paper:  { relief: 0.70, depth: 1.00, tolerance: 0.55 },
-            card:   { relief: 0.85, depth: 1.15, tolerance: 0.70 },
-            kraft:  { relief: 1.15, depth: 1.45, tolerance: 1.10 }
+            latas:     { relief: 0.55, depth: 0.90, tolerance: 0.40 },
+            papel:     { relief: 0.70, depth: 1.00, tolerance: 0.55 },
+            cartulina: { relief: 0.85, depth: 1.15, tolerance: 0.70 },
+            bolsas:    { relief: 1.15, depth: 1.45, tolerance: 1.10 }
         };
         const cfg = map[preset];
         if (cfg) {
@@ -1423,7 +1598,7 @@ class WP3DStudio {
     setHingeCount(n) {
         this.state.hingeCount = n;
         [1, 2, 3].forEach(c => {
-            document.getElementById(`hinge-cnt-${c}`)?.classList.toggle('active', c === n);
+            document.getElementById(`hc-${c}`)?.classList.toggle('active', c === n);
         });
         this.rebuild();
     }
@@ -1445,29 +1620,27 @@ class WP3DStudio {
     }
 
     setStampPreset(preset) {
-        document.getElementById('stamp-pre-wax')?.classList.toggle('active', preset === 'wax');
-        document.getElementById('stamp-pre-cookie')?.classList.toggle('active', preset === 'cookie');
-        if (preset === 'wax') {
+        ['lacre', 'galleta', 'arcilla'].forEach(p => {
+            document.getElementById(`sp-${p}`)?.classList.toggle('active', p === preset);
+        });
+        if (preset === 'lacre') {
             this.state.stampNegative = true;
-            this.state.stampHandle = true;
-            this.state.rimWidth = 2.0;
-            this.state.relief = 1.8;
-            this.state.plateWidth = 35;
-            this.state.plateLength = 35;
-            this.state.logoSize = 27;
-        } else {
+            this.state.plateWidth = 28;
+            this.state.plateLength = 28;
+            this.state.relief = 1.5;
+        } else if (preset === 'galleta') {
             this.state.stampNegative = false;
-            this.state.stampHandle = true;
-            this.state.rimWidth = 1.6;
-            this.state.relief = 3.0;
             this.state.plateWidth = 65;
             this.state.plateLength = 65;
-            this.state.logoSize = 52;
+            this.state.relief = 3.0;
+        } else {
+            this.state.stampNegative = true;
+            this.state.plateWidth = 45;
+            this.state.plateLength = 45;
+            this.state.relief = 2.2;
         }
-        const negCheck = document.getElementById('stamp-negative');
+        const negCheck = document.getElementById('stamp-invert-relief');
         if (negCheck) negCheck.checked = this.state.stampNegative;
-        const hndCheck = document.getElementById('stamp-handle');
-        if (hndCheck) hndCheck.checked = this.state.stampHandle;
         this.syncUIInputs();
         this.rebuild();
     }
@@ -1475,7 +1648,7 @@ class WP3DStudio {
     setBaseShape(shape) {
         this.state.baseShape = shape;
         ['circle', 'rect', 'shield', 'none'].forEach(sh => {
-            document.getElementById(`base-shape-${sh}`)?.classList.toggle('active', sh === shape);
+            document.getElementById(`bs-${sh}`)?.classList.toggle('active', sh === shape);
         });
         this.rebuild();
     }
@@ -1494,35 +1667,30 @@ class WP3DStudio {
     onSlider(name, val) {
         const num = parseFloat(val);
         if (isNaN(num)) return;
-        this.state[name] = num;
+        if (name === 'width') {
+            this.state.plateWidth = num;
+            if (this.state.mode !== 'emboss' && this.state.baseShape === 'circle') {
+                this.state.plateLength = num;
+            }
+        } else if (name === 'height') {
+            this.state.plateLength = num;
+        } else if (name === 'scale') {
+            this.state.logoScale = num;
+        } else if (name === 'offset') {
+            this.state.logoOffset = num;
+        }
         this.syncUIInputs();
         this.rebuildDebounced();
     }
 
     onNumberParams() {
-        const pw = parseFloat(document.getElementById('inp-plate-w')?.value || '50');
-        const pl = parseFloat(document.getElementById('inp-plate-l')?.value || '50');
-        this.state.plateWidth = Math.max(15, Math.min(180, pw));
-        this.state.plateLength = Math.max(15, Math.min(180, pl));
-
-        const hh = parseFloat(document.getElementById('inp-handle-h')?.value || '22');
-        const rw = parseFloat(document.getElementById('inp-rim-w')?.value || '1.8');
-        this.state.handleHeight = Math.max(0, hh);
-        this.state.rimWidth = Math.max(0, rw);
-
-        const sn = document.getElementById('stamp-negative');
-        if (sn) this.state.stampNegative = sn.checked;
-        const sh = document.getElementById('stamp-handle');
-        if (sh) this.state.stampHandle = sh.checked;
-
-        const le = document.getElementById('keychain-loop');
-        if (le) this.state.loopEnabled = le.checked;
-        const lh = parseFloat(document.getElementById('inp-loop-hole')?.value || '4.5');
-        this.state.loopHole = Math.max(0, lh);
-
-        const kr = parseFloat(document.getElementById('inp-key-rim')?.value || '1.6');
-        if (this.state.mode === 'keychain') this.state.rimWidth = Math.max(0, kr);
-
+        const th = parseFloat(document.getElementById('num-thickness')?.value || '4.0');
+        const rl = parseFloat(document.getElementById('num-relief')?.value || '0.7');
+        const tl = parseFloat(document.getElementById('num-tolerance')?.value || '0.55');
+        this.state.thickness = Math.max(1.0, th);
+        this.state.relief = Math.max(0.2, rl);
+        this.state.tolerance = Math.max(0.05, tl);
+        this.state.depth = this.state.relief + 0.30;
         this.rebuildDebounced();
     }
 
@@ -1531,37 +1699,36 @@ class WP3DStudio {
         const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
         const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
 
-        setVal('sl-logo-size', s.logoSize);
-        setTxt('lbl-logo-size', `${s.logoSize} mm`);
-        setVal('sl-thickness', s.thickness);
-        setTxt('lbl-thickness', `${s.thickness.toFixed(1)} mm`);
-        setVal('sl-relief', s.relief);
-        setTxt('lbl-relief', `${s.relief.toFixed(2)} mm`);
-        setVal('sl-depth', s.depth);
-        setTxt('lbl-depth', `${s.depth.toFixed(2)} mm`);
-        setVal('sl-tolerance', s.tolerance);
-        setTxt('lbl-tolerance', `${s.tolerance.toFixed(2)} mm`);
+        setVal('slider-width', s.plateWidth);
+        setTxt('val-width', `${s.plateWidth.toFixed(1)} mm`);
+        setVal('slider-height', s.plateLength);
+        setTxt('val-height', `${s.plateLength.toFixed(1)} mm`);
+        setVal('slider-scale', s.logoScale);
+        setTxt('val-scale', `${Math.round(s.logoScale * 100)}%`);
+        setVal('slider-offset', s.logoOffset);
+        setTxt('val-offset', `${s.logoOffset.toFixed(1)} mm`);
 
-        setVal('inp-plate-w', s.plateWidth);
-        setVal('inp-plate-l', s.plateLength);
-        setVal('inp-handle-h', s.handleHeight);
-        setVal('inp-rim-w', s.rimWidth);
-        setVal('inp-key-rim', s.rimWidth);
-        setVal('inp-loop-hole', s.loopHole);
+        setVal('num-thickness', s.thickness);
+        setVal('num-relief', s.relief);
+        setVal('num-tolerance', s.tolerance);
     }
 
     resetDefaults() {
+        this.state.logoScale = 1.0;
+        this.state.logoOffset = 0.0;
+        this.state.rotation = 0;
+        this.state.flipX = false;
         this.setMode(this.state.mode);
         this.showToast('🔄 Parámetros restaurados');
     }
 
     setCameraView(view) {
         if (view === 'top') {
-            this.camera.position.set(0, 0.01, 135);
+            this.camera.position.set(0, 0.01, 140);
         } else if (view === 'front') {
-            this.camera.position.set(0, -125, 25);
+            this.camera.position.set(0, -130, 25);
         } else {
-            this.camera.position.set(0, -85, 95);
+            this.camera.position.set(0, -90, 95);
         }
         this.controls.target.set(0, 0, 0);
         this.controls.update();
@@ -1570,7 +1737,8 @@ class WP3DStudio {
     toggleWireframe() {
         this.state.wireframe = !this.state.wireframe;
         Object.values(this.materials).forEach(m => { m.wireframe = this.state.wireframe; });
-        document.getElementById('btn-wireframe')?.classList.toggle('active', this.state.wireframe);
+        const btn = document.getElementById('btn-wireframe');
+        if (btn) btn.innerText = `Bordes Técnicos: ${this.state.wireframe ? 'ON' : 'OFF'}`;
     }
 
     toggleBg() {
@@ -1578,9 +1746,6 @@ class WP3DStudio {
         this.scene.background = new THREE.Color(this.state.lightBg ? 0xe2e8f0 : 0x090d16);
     }
 
-    // =========================================================================
-    // UNLIMITED .STL & MULTICOLOR .3MF EXPORT
-    // =========================================================================
     getCleanFilename(suffix = '') {
         const raw = (document.getElementById('export-filename')?.value || 'WP_Diseno_3D').trim();
         const clean = raw.replace(/[^a-zA-Z0-9_\-]/g, '_');
@@ -1630,19 +1795,6 @@ class WP3DStudio {
         const blob = new Blob([res], { type: 'application/octet-stream' });
         this.triggerBlobDownload(blob, `${fname}.stl`);
         this.showToast(`✅ Descargado: ${fname}.stl`);
-    }
-
-    showToast(msg) {
-        const t = document.getElementById('studio-toast');
-        if (!t) return;
-        t.innerText = msg;
-        t.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-2');
-        t.classList.add('opacity-100', 'translate-y-0');
-        if (this._toastTimer) clearTimeout(this._toastTimer);
-        this._toastTimer = setTimeout(() => {
-            t.classList.add('opacity-0', 'pointer-events-none', 'translate-y-2');
-            t.classList.remove('opacity-100', 'translate-y-0');
-        }, 3200);
     }
 }
 

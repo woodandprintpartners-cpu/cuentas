@@ -1193,8 +1193,130 @@ def _vincular_filamentos_con_stock(filamentos_raw: List[Dict[str, Any]], stock_i
     return res
 
 
+def _estimar_desde_stl_bytes(raw_bytes: bytes) -> Dict[str, Any]:
+    import struct
+    vol_mm3 = 0.0
+    area_mm2 = 0.0
+
+    # Comprobar si es STL binario (cabecera 80 bytes + uint32 num_triangles + 50 bytes por triángulo)
+    is_binary = False
+    if len(raw_bytes) >= 84:
+        num_tris = struct.unpack("<I", raw_bytes[80:84])[0]
+        expected_len = 84 + num_tris * 50
+        if expected_len == len(raw_bytes) or (0 < num_tris < 10_000_000 and abs(expected_len - len(raw_bytes)) <= 2):
+            is_binary = True
+
+    if is_binary:
+        num_tris = struct.unpack("<I", raw_bytes[80:84])[0]
+        offset = 84
+        for _ in range(num_tris):
+            # 12 floats: nx, ny, nz, v1x, v1y, v1z, v2x, v2y, v2z, v3x, v3y, v3z
+            vals = struct.unpack_from("<12f", raw_bytes, offset)
+            offset += 50
+            x1, y1, z1 = vals[3], vals[4], vals[5]
+            x2, y2, z2 = vals[6], vals[7], vals[8]
+            x3, y3, z3 = vals[9], vals[10], vals[11]
+
+            vol_mm3 += (
+                x1 * (y2 * z3 - y3 * z2)
+                - y1 * (x2 * z3 - x3 * z2)
+                + z1 * (x2 * y3 - x3 * y2)
+            ) / 6.0
+
+            ux, uy, uz = x2 - x1, y2 - y1, z2 - z1
+            vx, vy, vz = x3 - x1, y3 - y1, z3 - z1
+            cx = uy * vz - uz * vy
+            cy = uz * vx - ux * vz
+            cz = ux * vy - uy * vx
+            area_mm2 += 0.5 * math.sqrt(cx * cx + cy * cy + cz * cz)
+    else:
+        # STL ASCII
+        text = raw_bytes.decode("utf-8", errors="ignore")
+        verts = []
+        for line in text.splitlines():
+            ls = line.strip()
+            if ls.lower().startswith("vertex"):
+                parts = ls.split()
+                if len(parts) >= 4:
+                    try:
+                        verts.append((float(parts[1]), float(parts[2]), float(parts[3])))
+                        if len(verts) == 3:
+                            (x1, y1, z1), (x2, y2, z2), (x3, y3, z3) = verts
+                            verts = []
+                            vol_mm3 += (
+                                x1 * (y2 * z3 - y3 * z2)
+                                - y1 * (x2 * z3 - x3 * z2)
+                                + z1 * (x2 * y3 - x3 * y2)
+                            ) / 6.0
+                            ux, uy, uz = x2 - x1, y2 - y1, z2 - z1
+                            vx, vy, vz = x3 - x1, y3 - y1, z3 - z1
+                            cx = uy * vz - uz * vy
+                            cy = uz * vx - ux * vz
+                            cz = ux * vy - uy * vx
+                            area_mm2 += 0.5 * math.sqrt(cx * cx + cy * cy + cz * cz)
+                    except ValueError:
+                        verts = []
+
+    vol_cm3 = abs(vol_mm3) / 1000.0
+    area_cm2 = area_mm2 / 100.0
+
+    # Estimación física realista (paredes 2 perímetros ~0.85mm + 4 capas sup/inf + relleno 15% PLA 1.24g/cm3)
+    shell_vol_cm3 = min(vol_cm3 * 0.92, area_cm2 * 0.085)
+    interior_vol_cm3 = max(0.0, vol_cm3 - shell_vol_cm3)
+    effective_vol_cm3 = shell_vol_cm3 + interior_vol_cm3 * 0.15
+    gramos = max(0.5, round(effective_vol_cm3 * 1.24, 2))
+    minutos = max(5.0, round(gramos * 2.1 + 4.0, 1))
+
+    fil_entry = {
+        "slicer_id": 1,
+        "tipo": "PLA",
+        "color_hex": "#10b981",
+        "gramos": gramos,
+        "modelo_g": gramos,
+        "desechos_g": 0.0,
+        "torre_g": 0.0,
+        "soporte_g": 0.0,
+        "cambios": 0
+    }
+    cama_obj = {
+        "plate_id": "1",
+        "nombre": "Cama 1 (Malla STL)",
+        "nombre_cama": "Cama 1 (Malla STL)",
+        "filamentos": [fil_entry],
+        "g_por_tirada": gramos,
+        "colores": 1,
+        "minutos": minutos,
+        "min_por_tirada_3d": minutos,
+        "tiempo_str": _format_minutes_str(minutos),
+        "objetos": 1,
+        "piezas_detectadas": 1,
+        "boquilla_mm": 0.4,
+        "altura_capa_mm": 0.2,
+        "tipo_placa": "Textured PEI Plate",
+        "desglose_peso": {
+            "modelo_g": gramos,
+            "desechos_g": 0.0,
+            "torre_g": 0.0,
+            "soporte_g": 0.0,
+            "cambios_filamento": 0
+        }
+    }
+    return {
+        "filamentos": [fil_entry],
+        "minutos": minutos,
+        "objetos": 1,
+        "boquilla_mm": 0.4,
+        "altura_capa_mm": 0.2,
+        "tipo_placa": "Textured PEI Plate",
+        "num_camas": 1,
+        "cama_activa_id": "1",
+        "camas": [cama_obj],
+        "desglose_peso": cama_obj["desglose_peso"]
+    }
+
+
 def analizar_archivo_slicer(filename: str, content: Union[bytes, BinaryIO], stock_items: List[Dict[str, Any]]) -> Dict[str, Any]:
-    clean_name = re.sub(r"(\.gcode\.3mf|\.3mf|\.gcode)$", "", filename or "Proyecto", flags=re.IGNORECASE).strip()
+    clean_name = re.sub(r"(\.gcode\.3mf|\.3mf|\.gcode|\.stl)$", "", filename or "Proyecto", flags=re.IGNORECASE).strip()
     filamentos_detectados: List[Dict[str, Any]] = []
     minutos_impresion = 0.0
     piezas_detectadas = 0
@@ -1217,8 +1339,22 @@ def analizar_archivo_slicer(filename: str, content: Union[bytes, BinaryIO], stoc
         file_obj = content
 
     is_zip = magic == b"PK\x03\x04" or (filename and filename.lower().endswith(".3mf"))
+    is_stl = bool(filename and filename.lower().endswith(".stl"))
 
-    if is_zip:
+    if is_stl and not is_zip:
+        es_estimacion_malla = True
+        if isinstance(content, (bytes, bytearray)):
+            raw_stl = bytes(content)
+        else:
+            file_obj.seek(0)
+            raw_stl = file_obj.read()
+        est = _estimar_desde_stl_bytes(raw_stl)
+        filamentos_detectados = est["filamentos"]
+        desglose_peso = est["desglose_peso"]
+        minutos_impresion = est["minutos"]
+        piezas_detectadas = 1
+        camas_lista = est["camas"]
+    elif is_zip:
         try:
             with zipfile.ZipFile(file_obj, "r") as zf:
                 names = zf.namelist()

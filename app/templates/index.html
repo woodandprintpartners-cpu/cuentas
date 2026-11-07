@@ -198,16 +198,16 @@
                             </span>
                         </div>
 
-                        <!-- Dropzone para importar .3mf / .gcode automáticamente -->
+                        <!-- Dropzone para importar .3mf / .gcode / .stl automáticamente -->
                         <div id="slicer-dropzone" onclick="document.getElementById('slicer-file-input').click()" ondragover="handleSlicerDragOver(event)" ondragleave="handleSlicerDragLeave(event)" ondrop="handleSlicerDrop(event)" class="border-2 border-dashed border-emerald-500/40 hover:border-emerald-400 bg-slate-900/60 hover:bg-emerald-950/20 rounded-xl p-3.5 text-center cursor-pointer transition-all group">
-                            <input type="file" id="slicer-file-input" accept=".3mf,.gcode" class="hidden" onchange="handleSlicerFileSelect(event)">
+                            <input type="file" id="slicer-file-input" accept=".3mf,.gcode,.stl" class="hidden" onchange="handleSlicerFileSelect(event)">
                             <div class="flex flex-col sm:flex-row items-center justify-center gap-2.5 text-xs">
                                 <div class="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform">
                                     🤖
                                 </div>
                                 <div class="text-left">
                                     <p class="font-bold text-emerald-300 group-hover:text-emerald-200">
-                                        Arrastra aquí tu archivo <span class="underline">.3mf</span> o <span class="underline">.gcode</span> (o haz clic para elegir)
+                                        Arrastra aquí tu archivo <span class="underline">.3mf</span>, <span class="underline">.gcode</span> o <span class="underline">.stl</span> (o haz clic para elegir)
                                     </p>
                                     <p class="text-[11px] text-slate-400">
                                         Detecta gramos exactos de cada color (incluidas purgas), tiempo de impresión y vincula tus bobinas en stock automáticamente.

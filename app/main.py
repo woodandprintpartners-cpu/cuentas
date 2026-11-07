@@ -95,7 +95,8 @@ def api_delete_proyecto_calc(pid: str):
 
 @app.post("/api/calculadora/analizar-archivo")
 async def api_analizar_archivo_slicer(request: Request):
-    filename = request.headers.get("X-Filename", "proyecto.3mf")
+    from urllib.parse import unquote
+    filename = unquote(request.headers.get("X-Filename", "proyecto.3mf"))
     spool = tempfile.SpooledTemporaryFile(max_size=4 * 1024 * 1024, mode="w+b")
     try:
         total_bytes = 0

@@ -140,13 +140,29 @@
                         <button id="src-tab-icons" onclick="window.studio.setSourceTab('icons')" class="py-1.5 rounded-md font-semibold text-slate-400 hover:text-white transition">⭐ Plantillas</button>
                     </div>
 
-                    <!-- TAB A: UPLOAD SVG OR PNG/JPG -->
+                    <!-- TAB A: UPLOAD SVG, STL OR PNG/JPG -->
                     <div id="src-panel-upload" class="space-y-2">
                         <div id="drop-zone" onclick="document.getElementById('file-input').click()" class="border-2 border-dashed border-slate-700 hover:border-emerald-500 rounded-xl p-4 text-center cursor-pointer transition bg-slate-900/50 hover:bg-slate-900">
-                            <input type="file" id="file-input" accept=".svg,.png,.jpg,.jpeg,.webp" class="hidden">
+                            <input type="file" id="file-input" accept=".svg,.stl,.png,.jpg,.jpeg,.webp" class="hidden">
                             <div class="text-2xl mb-1">📤</div>
-                            <p class="text-xs font-bold text-slate-200">Subir archivo <span class="text-emerald-400">.SVG</span> o imagen <span class="text-blue-400">.PNG / .JPG</span></p>
-                            <p class="text-[11px] text-slate-400 mt-0.5">Si subes una foto/PNG, la vectorizamos a 3D al instante</p>
+                            <p class="text-xs font-bold text-slate-200">Subir <span class="text-emerald-400">.STL</span>, <span class="text-emerald-400">.SVG</span> o imagen <span class="text-blue-400">.PNG / .JPG</span></p>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Acepta mallas 3D (.STL), vectores (.SVG) o fotos (.PNG/.JPG)</p>
+                        </div>
+
+                        <!-- STL 3D Mesh Controls (shown when .STL uploaded) -->
+                        <div id="stl-controls" class="hidden bg-slate-900 border border-emerald-500/40 rounded-lg p-2.5 space-y-2">
+                            <div class="flex items-center justify-between text-[11px]">
+                                <span class="font-semibold text-emerald-400">🧊 Malla 3D (.STL) Cargada</span>
+                                <label class="flex items-center gap-1 cursor-pointer text-slate-200">
+                                    <input type="checkbox" id="stl-use-3d-mesh" onchange="window.studio.onStlControlChange()" checked class="rounded">
+                                    <span>Mantener relieve 3D original</span>
+                                </label>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[11px] text-slate-400 w-28" title="Recorta la base plana del STL para extraer solo la figura/relieve">Recortar base STL:</span>
+                                <input type="range" id="stl-cut-pct" min="0" max="70" step="2" value="12" oninput="window.studio.onStlControlChange()" class="flex-1">
+                                <span id="stl-cut-val" class="text-[11px] mono w-10 text-right text-emerald-400">12%</span>
+                            </div>
                         </div>
 
                         <!-- Raster image auto-vectorize controls (shown when PNG/JPG uploaded) -->
